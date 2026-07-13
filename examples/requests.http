@@ -1,0 +1,72 @@
+# Requêtes de test pour les endpoints http-host (fork assets custom).
+# Remplacer les variables ci-dessous selon l'environnement / les assets déposés.
+
+@host = https://tiles.ublo.app
+@dataset = pistes-20260713
+@customStyle = valraiso
+@spriteName = ofm_f384
+
+###############################################################################
+# Tuiles OFM standard (non-régression)
+###############################################################################
+
+### TileJSON latest planet — 200, x-ofm-debug: latest JSON planet
+GET {{host}}/planet
+
+### TileJSON latest monaco — 200
+GET {{host}}/monaco
+
+### Tuile pbf monaco (wildcard version) — 200, Content-Encoding: gzip
+GET {{host}}/monaco/19700101_old_version_test/14/8529/5975.pbf
+
+### Tuile manquante — 200 vide, x-ofm-debug: empty tile
+GET {{host}}/monaco/19700101_old_version_test/9999/9999/9999.pbf
+
+###############################################################################
+# Datasets de tuiles custom (/tiles/{dataset})
+###############################################################################
+
+### TileJSON du dataset (si tilejson.json déposé) — 200, domaine substitué, cache 1d
+GET {{host}}/tiles/{{dataset}}
+
+### Tuile pbf du dataset — 200, Content-Encoding: gzip, cache 10y, x-ofm-debug: custom dataset PBF
+GET {{host}}/tiles/{{dataset}}/14/8529/5975.pbf
+
+### Tuile manquante du dataset — 200 vide, x-ofm-debug: empty tile
+GET {{host}}/tiles/{{dataset}}/9999/9999/9999.pbf
+
+### Accès direct au tilejson.json — 403 (ne doit PAS être servi avec Content-Encoding: gzip)
+GET {{host}}/tiles/{{dataset}}/tilejson.json
+
+### Dataset inexistant — 404
+GET {{host}}/tiles/nexistepas
+
+###############################################################################
+# Styles (/styles/{name}) — cache 5 min
+###############################################################################
+
+### Style OFM standard — 200, cache-control: max-age=300, x-ofm-debug: style custom/ofm
+GET {{host}}/styles/liberty
+
+### Style custom (déposé dans assets/styles/custom/) — 200, domaine substitué
+GET {{host}}/styles/{{customStyle}}
+
+### Style inexistant — 404
+GET {{host}}/styles/nexistepas
+
+###############################################################################
+# Sprites et fonts (non-régression)
+###############################################################################
+
+### Sprite JSON — 200, cache 10y
+GET {{host}}/sprites/{{spriteName}}/ofm.json
+
+### Fonts — 200
+GET {{host}}/fonts/Noto%20Sans%20Regular/0-255.pbf
+
+###############################################################################
+# Catch-all
+###############################################################################
+
+### Chemin inconnu — 403
+GET {{host}}/nimportequoi

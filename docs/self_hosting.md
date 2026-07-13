@@ -14,6 +14,8 @@ There is a 99.9% chance you only need **http-host**. Tile-gen is slow, needs a h
 
 **http-host**: 300 GB disk space for hosting a single run. SSD is recommended, but not required.
 
+> Note: the sync requires roughly `3 × compressed_planet_size` of free space before downloading (compressed `.gz` + uncompressed btrfs image held at the same time). The planet `.gz` is currently ~96 GB, so ~290 GB free is needed for a single run. In **autoupdate** mode the weekly sync downloads the new version while the previous one is still mounted (cleanup runs afterwards), so plan for extra headroom — 350–400 GB is a safer target.
+
 **tile-gen**: 500 GB SDD and at least 64 GB ram
 
 **Ubuntu 22** or newer
@@ -105,6 +107,43 @@ Update your `.env` file and re-run the same `./init-server.py http-host-static H
 Go for a walk and by the time you come back it should be up and running with the latest planet tiles deployed. Don't worry about the "Download aborted" lines in the meanwhile, it's a bug in CloudFlare.
 
 If your server doesn't have an SSD, the download + uncompressing process can take hours.
+
+---
+
+## Custom assets (this fork)
+
+This fork's http-host also serves **custom assets** on top of the standard OFM tiles: sprites, additional tile datasets and MapLibre styles. This repo neither produces nor deploys these assets — an external process deposits them on the server; nginx serves them via generic locations, so **adding a new dataset, style or sprite requires no nginx reload and no redeploy**.
+
+The minutely OFM sync never touches these locations: it only rewrites `assets/{fonts,styles,natural_earth}/ofm/`, adds sprite versions under `assets/sprites/`, and manages `runs/` + `/mnt/ofm`.
+
+### How to deposit files
+
+- Deposit as user `ofm` (or `chown ofm:ofm` afterwards), directories `755`, files `644` (nginx runs as user `nginx` and only needs read access).
+- Deposit **atomically**: extract/copy into a temporary name next to the target, then `mv` it into place.
+
+### Custom sprites
+
+Deposit into `/data/ofm/http_host/assets/sprites/{name}/`, served at `https://DOMAIN/sprites/{name}/...`. Sprites are cached for 10 years — if a sprite can change, put a version in its directory name (like OFM's `ofm_f384`) and update the styles referencing it.
+
+### Custom tile datasets
+
+Deposit a tile pyramid into `/data/ofm/http_host/tiles/{dataset}/{z}/{x}/{y}.pbf`, served at `https://DOMAIN/tiles/{dataset}/{z}/{x}/{y}.pbf`.
+
+- Tiles must be **pre-gzipped** pbf files, like OFM tiles (this is tippecanoe's default with `--output-to-directory`); they are served with `Content-Encoding: gzip`.
+- Datasets are treated as **immutable** (tiles cached for 10 years): put a version in the dataset name (e.g. `pistes-20260713`) instead of updating tiles in place.
+- Missing tiles return an empty `200` response, same as OFM tiles.
+- Optionally deposit a `tilejson.json` at the dataset root: it is then served at `https://DOMAIN/tiles/{dataset}` (cached 1 day). Use the literal placeholder `__TILEJSON_DOMAIN__` in its URLs; nginx substitutes the configured domain when serving.
+
+### Custom MapLibre styles
+
+Deposit `{name}.json` files into `/data/ofm/http_host/assets/styles/custom/`, served at `https://DOMAIN/styles/{name}`.
+
+- Custom styles take precedence over OFM styles with the same name.
+- Use the literal placeholder `__TILEJSON_DOMAIN__` for the domain in `sources`, `sprite` and `glyphs` URLs, like the OFM styles do.
+- Styles are cached for **5 minutes** only, since they are expected to change regularly.
+- Do NOT put custom files inside `assets/styles/ofm/` — that directory is wiped by the minutely sync. (Theoretical caveat: if the upstream styles tarball ever contained a `custom/` entry, it would overwrite this directory.)
+
+Test requests for all these endpoints are in [`examples/requests.http`](../examples/requests.http).
 
 ---
 
