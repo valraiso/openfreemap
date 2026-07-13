@@ -127,11 +127,11 @@ Deposit into `/data/ofm/http_host/assets/sprites/{name}/`, served at `https://DO
 
 ### Custom tile datasets
 
-Deposit a tile pyramid into `/data/ofm/http_host/tiles/{dataset}/{z}/{x}/{y}.pbf`, served at `https://DOMAIN/tiles/{dataset}/{z}/{x}/{y}.pbf`.
+Deposit a tile pyramid into `/data/ofm/http_host/tiles/{dataset}/{z}/{x}/{y}.{ext}`, served at `https://DOMAIN/tiles/{dataset}/{z}/{x}/{y}.{ext}`. Both vector and raster datasets are supported:
 
-- Tiles must be **pre-gzipped** pbf files, like OFM tiles (this is tippecanoe's default with `--output-to-directory`); they are served with `Content-Encoding: gzip`.
+- **Vector** (`.pbf`): tiles must be **pre-gzipped**, like OFM tiles (this is tippecanoe's default with `--output-to-directory`); they are served with `Content-Encoding: gzip`. Missing tiles return an empty `200` response, same as OFM tiles.
+- **Raster** (`.webp`, `.png`, `.jpg`, `.jpeg`, `.avif`): tiles are served as-is (no gzip — these formats are already compressed), with the MIME type matching the extension. Missing tiles return `404` (an empty `200` would be an image decode error client-side).
 - Datasets are treated as **immutable** (tiles cached for 10 years): put a version in the dataset name (e.g. `pistes-20260713`) instead of updating tiles in place.
-- Missing tiles return an empty `200` response, same as OFM tiles.
 - Optionally deposit a `tilejson.json` at the dataset root: it is then served at `https://DOMAIN/tiles/{dataset}` (cached 1 day). Use the literal placeholder `__TILEJSON_DOMAIN__` in its URLs; nginx substitutes the configured domain when serving.
 
 ### Custom MapLibre styles

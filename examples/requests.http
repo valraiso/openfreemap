@@ -3,6 +3,7 @@
 
 @host = https://tiles.ublo.app
 @dataset = pistes-20260713
+@rasterDataset = ortho-20260713
 @customStyle = valraiso
 @spriteName = ofm_f384
 
@@ -34,6 +35,12 @@ GET {{host}}/tiles/{{dataset}}/14/8529/5975.pbf
 
 ### Tuile manquante du dataset — 200 vide, x-ofm-debug: empty tile
 GET {{host}}/tiles/{{dataset}}/9999/9999/9999.pbf
+
+### Tuile raster — 200, content-type: image/webp (pas de Content-Encoding), cache 10y
+GET {{host}}/tiles/{{rasterDataset}}/14/8529/5975.webp
+
+### Tuile raster manquante — 404
+GET {{host}}/tiles/{{rasterDataset}}/9999/9999/9999.webp
 
 ### Accès direct au tilejson.json — 403 (ne doit PAS être servi avec Content-Encoding: gzip)
 GET {{host}}/tiles/{{dataset}}/tilejson.json
