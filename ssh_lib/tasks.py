@@ -97,6 +97,14 @@ def prepare_http_host(c):
     c.sudo('mkdir -p /data/ofm/http_host/logs_nginx')
     c.sudo('chown nginx:nginx /data/ofm/http_host/logs_nginx')
 
+    # dirs for externally-deposited custom assets: contents must survive redeploys
+    c.sudo('mkdir -p /data/ofm/http_host/tiles')
+    c.sudo('mkdir -p /data/ofm/http_host/assets/styles/custom')
+    c.sudo(
+        'chown ofm:ofm /data/ofm/http_host/tiles /data/ofm/http_host/assets '
+        '/data/ofm/http_host/assets/styles /data/ofm/http_host/assets/styles/custom'
+    )
+
     upload_http_host_files(c)
 
     if dotenv_val('DOMAIN_ROUNDROBIN'):
