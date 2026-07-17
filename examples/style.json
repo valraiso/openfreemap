@@ -98,8 +98,6 @@
             "Sand",
             "Protected area labels",
             "Glacier",
-            "Scrub",
-            "Forest",
             "Grass",
             "Wood"
           ]
@@ -130,28 +128,23 @@
   "sources": {
     "planet": {
       "type": "vector",
-      "url": "https://tiles.openfreemap.org/planet"
-    },
-    "dem": {
-      "type": "raster-dem",
-      "tiles": [
-        "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
-      ],
-      "encoding": "terrarium",
-      "tileSize": 256,
-      "maxzoom": 13,
-      "attribution": "<a href=\"https://registry.opendata.aws/terrain-tiles/\">AWS Terrain Tiles</a>"
+      "url": "https://tiles.ublo.app/planet"
     },
     "contours": {
       "type": "vector",
-      "tiles": [
-        "dem2-contour://{z}/{x}/{y}?contourLayer=contours&elevationKey=ele&levelKey=level&thresholds=11*200*1000~12*100*500~14*50*200~15*20*100"
-      ],
-      "maxzoom": 15
+      "url": "https://tiles.ublo.app/tiles/contours-v1.0"
+    },
+    "hillshade-raster": {
+      "type": "raster",
+      "url": "https://tiles.ublo.app/tiles/hillshade-raster-v1.0"
+    },
+    "relief-vector": {
+      "type": "vector",
+      "url": "https://tiles.ublo.app/tiles/relief-vector-v1.0"
     }
   },
-  "sprite": "https://tiles.openfreemap.org/sprites/ofm_f384/ofm",
-  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  "sprite": "https://tiles.ublo.app/sprites/ofm_f384/ofm",
+  "glyphs": "https://tiles.ublo.app/fonts/{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "Background",
@@ -159,36 +152,6 @@
       "minzoom": 0,
       "layout": { "visibility": "visible" },
       "paint": { "background-color": "hsl(192, 0%, 100%)" }
-    },
-    {
-      "id": "Scrub",
-      "type": "fill",
-      "source": "planet",
-      "source-layer": "globallandcover",
-      "maxzoom": 9,
-      "filter": ["==", "class", "scrub"],
-      "layout": { "visibility": "visible" },
-      "paint": { "fill-color": "hsl(180, 60%, 94%)", "fill-opacity": 1 }
-    },
-    {
-      "id": "Forest",
-      "type": "fill",
-      "source": "planet",
-      "source-layer": "globallandcover",
-      "minzoom": 0,
-      "maxzoom": 9,
-      "filter": ["==", "class", "forest"],
-      "layout": { "visibility": "visible" },
-      "paint": {
-        "fill-color": "hsl(180, 20%, 66%)",
-        "fill-opacity": {
-          "stops": [
-            [0, 0.1],
-            [6, 0.15],
-            [10, 0.2]
-          ]
-        }
-      }
     },
     {
       "id": "Glacier",
@@ -255,99 +218,30 @@
       }
     },
     {
-      "id": "Hillshade",
-      "type": "hillshade",
-      "source": "dem",
-      "minzoom": 3,
-      "layout": { "visibility": "visible" },
-      "paint": {
-        "hillshade-accent-color": "hsl(205, 73%, 94%)",
-        "hillshade-highlight-color": "hsl(183 45.8% 83.3%)",
-        "hillshade-shadow-color": "hsl(227, 31%, 41%)",
-        "hillshade-exaggeration": {
-          "stops": [
-            [3, 0.3],
-            [6, 0.25],
-            [9, 0.25],
-            [12, 0.55],
-            [16, 0.4]
-          ]
-        }
-      }
+      "id": "hs-shadow",
+      "type": "fill",
+      "source": "relief-vector",
+      "source-layer": "hillshade",
+      "filter": ["==", ["get", "class"], "shadow"],
+      "paint": { "fill-color": "#000", "fill-opacity": 0.18 }
     },
     {
-      "id": "Contour",
+      "id": "hs-highlight",
+      "type": "fill",
+      "source": "relief-vector",
+      "source-layer": "hillshade",
+      "filter": ["==", ["get", "class"], "highlight"],
+      "paint": { "fill-color": "#fff", "fill-opacity": 0.11 }
+    },
+    {
+      "id": "contour",
       "type": "line",
-      "source": "contours",
-      "source-layer": "contours",
-      "minzoom": 10,
-      "filter": ["==", ["get", "level"], 0],
-      "layout": { "visibility": "visible" },
+      "source": "relief-vector",
+      "source-layer": "contour",
       "paint": {
-        "line-color": "hsla(212, 39%, 49%, 0.6)",
-        "line-opacity": ["step", ["zoom"], 0.2, 15, 0.6],
-        "line-width": 0.8
-      }
-    },
-    {
-      "id": "Contour index",
-      "type": "line",
-      "source": "contours",
-      "source-layer": "contours",
-      "minzoom": 9,
-      "filter": [">", ["get", "level"], 0],
-      "layout": { "visibility": "visible" },
-      "paint": {
-        "line-color": "hsla(213, 39%, 44%, 0.6)",
-        "line-opacity": {
-          "stops": [
-            [10, 0.6],
-            [14, 0.75]
-          ]
-        },
-        "line-width": {
-          "stops": [
-            [10, 0.8],
-            [14, 1.3]
-          ]
-        }
-      }
-    },
-    {
-      "id": "Contour labels",
-      "type": "symbol",
-      "metadata": {},
-      "source": "contours",
-      "source-layer": "contours",
-      "filter": [
-        "all",
-        ["==", ["geometry-type"], "LineString"],
-        [">", ["get", "level"], 0],
-        [">", ["get", "ele"], 0]
-      ],
-      "layout": {
-        "symbol-avoid-edges": true,
-        "symbol-placement": "line",
-        "text-allow-overlap": false,
-        "text-field": ["concat", ["number-format", ["get", "ele"], {}], " m"],
-        "text-font": ["Roboto Italic", "Noto Sans Italic"],
-        "text-ignore-placement": false,
-        "text-padding": 10,
-        "text-rotation-alignment": "map",
-        "text-size": {
-          "base": 1,
-          "stops": [
-            [15, 9.5],
-            [20, 12]
-          ]
-        },
-        "visibility": "visible"
-      },
-      "paint": {
-        "text-color": "hsl(213, 41%, 49%)",
-        "text-halo-blur": 1,
-        "text-halo-color": "hsl(57, 100%, 96%)",
-        "text-halo-width": 0.5
+        "line-color": "#7a5a2f",
+        "line-width": ["case", [">", ["get", "index"], 0], 1.0, 0.4],
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.25, 14, 0.6]
       }
     },
     {
@@ -2402,7 +2296,6 @@
     "fog-ground-blend": 1,
     "atmosphere-blend": 0.5
   },
-  "terrain": { "source": "dem", "exaggeration": 1 },
   "id": "czoqx9azr",
   "owner": "valraiso"
 }

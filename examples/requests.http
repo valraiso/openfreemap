@@ -2,7 +2,7 @@
 # Remplacer les variables ci-dessous selon l'environnement / les assets déposés.
 
 @host = https://tiles.ublo.app
-@dataset = pistes-20260713
+@dataset = hillshade-raster-v1.0
 @rasterDataset = ortho-20260713
 @customStyle = valraiso
 @spriteName = ofm_f384
