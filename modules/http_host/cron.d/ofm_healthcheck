@@ -1,0 +1,2 @@
+# every 5 minutes, checks that tiles are served correctly and alerts Slack on failure
+*/5 * * * * ofm     /usr/bin/flock -n /tmp/ofm_healthcheck.lockfile -c '/data/ofm/venv/bin/python -u /data/ofm/http_host/bin/http_host.py healthcheck >> /data/ofm/http_host/logs/healthcheck.log 2>&1'

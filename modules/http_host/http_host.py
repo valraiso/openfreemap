@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 from datetime import datetime, timezone
 
 import click
@@ -9,6 +10,7 @@ from http_host_lib.btrfs import (
     download_area_version,
     get_versions_for_area,
 )
+from http_host_lib.healthcheck import run_healthcheck
 from http_host_lib.mount import auto_mount
 from http_host_lib.nginx import write_nginx_config
 from http_host_lib.sync import auto_clean_btrfs, full_sync
@@ -103,6 +105,17 @@ def sync(force):
     print(f'---\n{now}\nStarting sync')
 
     full_sync(force)
+
+
+@cli.command()
+def healthcheck():
+    """
+    Checks that tiles are served correctly (TileJSON, sample tile, served vs
+    deployed version, free disk space) and alerts a Slack channel on failure.
+    Normally called by cron every 5 minutes.
+    """
+
+    sys.exit(run_healthcheck())
 
 
 @cli.command()

@@ -117,6 +117,11 @@ def prepare_http_host(c):
         )
         put(c, MODULES_DIR / 'http_host' / 'cron.d' / 'ofm_roundrobin_reader', '/etc/cron.d/')
 
+    # healthcheck with Slack alerting, only installed when a Slack bot is configured
+    c.sudo('rm -f /etc/cron.d/ofm_healthcheck')
+    if dotenv_val('SLACK_BOT_TOKEN') and dotenv_val('SLACK_CHANNEL'):
+        put(c, MODULES_DIR / 'http_host' / 'cron.d' / 'ofm_healthcheck', '/etc/cron.d/')
+
     c.sudo(f'{VENV_BIN}/pip install -e {HTTP_HOST_BIN} --use-pep517')
 
 
@@ -231,6 +236,9 @@ def upload_config_json(c):
         'http_host_list': http_host_list,
         'telegram_token': dotenv_val('TELEGRAM_TOKEN'),
         'telegram_chat_id': dotenv_val('TELEGRAM_CHAT_ID'),
+        'slack_bot_token': dotenv_val('SLACK_BOT_TOKEN'),
+        'slack_channel': dotenv_val('SLACK_CHANNEL'),
+        'healthcheck_min_free_gb': int(dotenv_val('HEALTHCHECK_MIN_FREE_GB') or 0),
     }
 
     config_str = json.dumps(config, indent=2, ensure_ascii=False)

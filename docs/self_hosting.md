@@ -145,6 +145,23 @@ Deposit `{name}.json` files into `/data/ofm/http_host/assets/styles/custom/`, se
 
 Test requests for all these endpoints are in [`examples/requests.http`](../examples/requests.http).
 
+## Healthcheck with Slack alerting (this fork)
+
+A cron task (`/etc/cron.d/ofm_healthcheck`, every 5 minutes) runs `http_host.py healthcheck` on the server, which checks:
+
+- `https://DOMAIN/planet` returns HTTP 200 with a valid TileJSON (and `/monaco` too);
+- a sample tile from that TileJSON returns HTTP 200;
+- the served version matches `/data/ofm/config/deployed_versions/{area}.txt` — a mismatch means the sync is stuck (typically out of disk space);
+- free disk space is above `HEALTHCHECK_MIN_FREE_GB` (default 300 GB — a planet download needs about 3× the size of the `.gz` in free space).
+
+On failure it posts to a Slack channel via a bot token (`chat.postMessage`), then stays quiet: one message per state change (failure/recovery) plus a daily reminder while the failure lasts. State is kept in `/data/ofm/http_host/healthcheck_state.json`, logs in `/data/ofm/http_host/logs/healthcheck.log`.
+
+Setup:
+
+1. Create a Slack app with the `chat:write` scope, install it in the workspace, invite the bot to the target channel (or give it `channels:join`).
+2. Set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` (channel ID, not name) in `config/.env`. Leaving them empty disables the cron at deploy time.
+3. Redeploy (`./init-server.py http-host-autoupdate HOSTNAME`), or run `http_host.py healthcheck` manually on the server to test.
+
 ---
 
 #### Deploy tile-gen server (optional)
