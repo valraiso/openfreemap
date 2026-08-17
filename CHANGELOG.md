@@ -20,6 +20,8 @@ Le format s'appuie sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Changed
 
+- 2026-08-17 — Home de démo : sélecteur de style dans le panneau (liste prédéfinie : `winter`, `summer`, `winter-hillshade-mix`) au lieu du style `winter` figé. Le style choisi est conservé dans l'URL (`?style=…`, compatible avec le hash de position MapLibre) pour permettre de partager un lien ; une valeur inconnue retombe sur `winter`.
+
 - 2026-08-17 — Cron de sync (`ofm_http_host`) restreint à une fenêtre nocturne (`* 0-4 * * *`, heure locale serveur) : les téléchargements planet (~90 Go + extraction, gros I/O disque) ne peuvent plus dégrader le service de tuiles en journée. Contrepartie : les mises à jour arrivent avec jusqu'à ~24 h de retard et une panne du sync détectée en journée ne se répare que la nuit suivante (le healthcheck Slack alerte entre-temps). Aligné avec la modification faite manuellement sur tiles.ublo.app le 2026-08-17.
 
 - 2026-07-13 — Les styles (`/styles/{name}`) sont désormais cachés **5 minutes** au lieu d'1 jour : ils évoluent régulièrement et le `sub_filter` nginx empêche la revalidation conditionnelle (ETag/Last-Modified supprimés).

@@ -47,6 +47,16 @@
         padding: 1px 4px;
         border-radius: 4px;
       }
+      #panel select {
+        font: inherit;
+        font-size: 12px;
+        margin-left: 4px;
+        padding: 2px 4px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        background: #fff;
+        color: inherit;
+      }
       #panel .st {
         margin-top: 6px;
         font-size: 12px;
@@ -66,6 +76,10 @@
         #panel code {
           background: #33373d;
         }
+        #panel select {
+          background: #33373d;
+          border-color: #555;
+        }
         #panel .st {
           color: #aab;
         }
@@ -76,15 +90,27 @@
     <div id="map"></div>
     <div id="panel">
       Source : <b>tiles.ublo.app</b> (OpenFreeMap self-hosté)<br />
-      Style : <code>winter</code>
+      <label for="style-select">Style :</label>
+      <select id="style-select">
+        <option value="winter">winter</option>
+        <option value="summer">summer</option>
+        <option value="winter-hillshade-mix">winter-hillshade-mix</option>
+      </select>
       <div class="st" id="status">chargement…</div>
     </div>
 
     <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
     <script>
+      const STYLES = ["winter", "summer", "winter-hillshade-mix"];
+      const styleSelect = document.getElementById("style-select");
+
+      const requested = new URLSearchParams(location.search).get("style");
+      const initialStyle = STYLES.includes(requested) ? requested : STYLES[0];
+      styleSelect.value = initialStyle;
+
       const map = new maplibregl.Map({
         container: "map",
-        style: "/styles/winter",
+        style: "/styles/" + initialStyle,
         center: [6.865, 45.833], // massif du Mont-Blanc
         zoom: 11.5,
         hash: true,
@@ -105,6 +131,20 @@
       );
 
       const status = document.getElementById("status");
+
+      styleSelect.addEventListener("change", () => {
+        const name = styleSelect.value;
+        map.setStyle("/styles/" + name);
+        const url = new URL(location.href);
+        url.searchParams.set("style", name);
+        history.replaceState(null, "", url);
+        status.textContent = "chargement…";
+        status.className = "st";
+        map.once("idle", () => {
+          status.textContent = "carte chargée ✓";
+          status.className = "st ok";
+        });
+      });
       map.on("load", () => {
         status.textContent = "carte chargée ✓";
         status.className = "st ok";

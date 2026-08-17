@@ -147,7 +147,7 @@ Test requests for all these endpoints are in [`examples/requests.http`](../examp
 
 ## Demo home page (this fork)
 
-The root URL (`https://DOMAIN/`) serves a MapLibre demo map on the `winter` style instead of upstream's redirect to openfreemap.org. It is protected by basic auth: set `DEMO_AUTH_USER` / `DEMO_AUTH_PASS` in `config/.env` (empty credentials lock the page entirely, 401 for everyone — nginx keeps working).
+The root URL (`https://DOMAIN/`) serves a MapLibre demo map instead of upstream's redirect to openfreemap.org. A selector in the panel switches between the predefined styles (`winter`, `summer`, `winter-hillshade-mix`); the current choice is kept in the `?style=` query parameter so the link can be shared (an unknown value falls back to `winter`). It is protected by basic auth: set `DEMO_AUTH_USER` / `DEMO_AUTH_PASS` in `config/.env` (empty credentials lock the page entirely, 401 for everyone — nginx keeps working).
 
 - Page shipped in `modules/http_host/demo/index.html`, uploaded at deploy to `/data/ofm/http_host/assets/demo/`.
 - htpasswd generated at deploy (`openssl passwd -apr1`) into `/data/nginx/htpasswd_demo`.

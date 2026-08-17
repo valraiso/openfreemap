@@ -78,8 +78,12 @@ GET {{host}}/fonts/Noto%20Sans%20Regular/0-255.pbf
 ### Home sans auth — 401
 GET {{host}}/
 
-### Home avec auth — 200, page HTML MapLibre (style winter)
+### Home avec auth — 200, page HTML MapLibre (style winter par défaut)
 GET {{host}}/
+Authorization: Basic valraiso:VerUfemboy45
+
+### Home avec style dans l'URL — 200, même page (le style est lu côté client)
+GET {{host}}/?style=summer
 Authorization: Basic valraiso:VerUfemboy45
 
 ###############################################################################
