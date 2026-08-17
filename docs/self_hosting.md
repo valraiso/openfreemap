@@ -145,6 +145,14 @@ Deposit `{name}.json` files into `/data/ofm/http_host/assets/styles/custom/`, se
 
 Test requests for all these endpoints are in [`examples/requests.http`](../examples/requests.http).
 
+## Demo home page (this fork)
+
+The root URL (`https://DOMAIN/`) serves a MapLibre demo map on the `winter` style instead of upstream's redirect to openfreemap.org. It is protected by basic auth: set `DEMO_AUTH_USER` / `DEMO_AUTH_PASS` in `config/.env` (empty credentials lock the page entirely, 401 for everyone — nginx keeps working).
+
+- Page shipped in `modules/http_host/demo/index.html`, uploaded at deploy to `/data/ofm/http_host/assets/demo/`.
+- htpasswd generated at deploy (`openssl passwd -apr1`) into `/data/nginx/htpasswd_demo`.
+- Only `/` is protected — tiles, styles, sprites and fonts stay public (the map on the page loads them anonymously).
+
 ## Healthcheck with Slack alerting (this fork)
 
 A cron task (`/etc/cron.d/ofm_healthcheck`, every 5 minutes) runs `http_host.py healthcheck` on the server, which checks:

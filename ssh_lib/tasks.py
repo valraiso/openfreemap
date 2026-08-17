@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 
 from ssh_lib import (
@@ -122,6 +123,8 @@ def prepare_http_host(c):
     if dotenv_val('SLACK_BOT_TOKEN') and dotenv_val('SLACK_CHANNEL'):
         put(c, MODULES_DIR / 'http_host' / 'cron.d' / 'ofm_healthcheck', '/etc/cron.d/')
 
+    upload_demo_home(c)
+
     c.sudo(f'{VENV_BIN}/pip install -e {HTTP_HOST_BIN} --use-pep517')
 
 
@@ -210,6 +213,33 @@ def setup_roundrobin_writer(c):
         f'-d {domain_roundrobin}',
         # f'-d {domain2_roundrobin}',
     )
+
+
+def upload_demo_home(c):
+    """
+    Demo home page (MapLibre map) served at /, behind basic auth.
+    The nginx template always references /data/nginx/htpasswd_demo, so the file
+    must exist: without credentials in .env we upload an empty one (all requests
+    get 401) instead of breaking nginx.
+    """
+
+    c.sudo('mkdir -p /data/ofm/http_host/assets/demo')
+    put(c, MODULES_DIR / 'http_host' / 'demo' / 'index.html', '/data/ofm/http_host/assets/demo/')
+    c.sudo('chown -R ofm:ofm /data/ofm/http_host/assets/demo')
+
+    user = dotenv_val('DEMO_AUTH_USER')
+    password = dotenv_val('DEMO_AUTH_PASS')
+    if user and password:
+        hashed = subprocess.run(
+            ['openssl', 'passwd', '-apr1', password], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        htpasswd = f'{user}:{hashed}'
+    else:
+        print('DEMO_AUTH_USER/DEMO_AUTH_PASS not set, the demo home page will always return 401')
+        htpasswd = ''
+
+    put_str(c, '/data/nginx/htpasswd_demo', htpasswd)
+    c.sudo('chmod 644 /data/nginx/htpasswd_demo')
 
 
 def upload_config_json(c):

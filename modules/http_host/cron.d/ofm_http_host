@@ -1,4 +1,7 @@
 # every minute sync, locking so that only one process can run at a time
-* * * * * ofm     /usr/bin/flock -n /tmp/http_host.lockfile -c 'sudo /data/ofm/venv/bin/python -u /data/ofm/http_host/bin/http_host.py sync >> /data/ofm/http_host/logs/http_host_sync.log 2>&1'
+# restricted to a night window (server local time) so planet downloads and their
+# heavy disk I/O never degrade tile serving during the day; a run started at the
+# end of the window completes normally, cron just stops launching new ones
+* 0-4 * * * ofm     /usr/bin/flock -n /tmp/http_host.lockfile -c 'sudo /data/ofm/venv/bin/python -u /data/ofm/http_host/bin/http_host.py sync >> /data/ofm/http_host/logs/http_host_sync.log 2>&1'
 
 

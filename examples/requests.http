@@ -72,6 +72,17 @@ GET {{host}}/sprites/{{spriteName}}/ofm.json
 GET {{host}}/fonts/Noto%20Sans%20Regular/0-255.pbf
 
 ###############################################################################
+# Home de démo (basic auth)
+###############################################################################
+
+### Home sans auth — 401
+GET {{host}}/
+
+### Home avec auth — 200, page HTML MapLibre (style winter)
+GET {{host}}/
+Authorization: Basic valraiso:VerUfemboy45
+
+###############################################################################
 # Catch-all
 ###############################################################################
 

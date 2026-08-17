@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1"
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Démo — tiles.ublo.app</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      #map {
+        position: absolute;
+        inset: 0;
+      }
+      #panel {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 1;
+        font:
+          13px/1.45 system-ui,
+          -apple-system,
+          sans-serif;
+        background: rgba(255, 255, 255, 0.92);
+        color: #1a1a1a;
+        padding: 10px 12px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        max-width: 260px;
+      }
+      #panel b {
+        color: #0a58ca;
+      }
+      #panel code {
+        font-size: 12px;
+        background: #eef1f5;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      #panel .st {
+        margin-top: 6px;
+        font-size: 12px;
+        color: #555;
+      }
+      #panel .ok {
+        color: #1a7f37;
+      }
+      #panel .err {
+        color: #b42318;
+      }
+      @media (prefers-color-scheme: dark) {
+        #panel {
+          background: rgba(28, 30, 34, 0.92);
+          color: #e6e6e6;
+        }
+        #panel code {
+          background: #33373d;
+        }
+        #panel .st {
+          color: #aab;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="panel">
+      Source : <b>tiles.ublo.app</b> (OpenFreeMap self-hosté)<br />
+      Style : <code>winter</code>
+      <div class="st" id="status">chargement…</div>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+    <script>
+      const map = new maplibregl.Map({
+        container: "map",
+        style: "/styles/winter",
+        center: [6.865, 45.833], // massif du Mont-Blanc
+        zoom: 11.5,
+        hash: true,
+        maxPitch: 75,
+      });
+
+      map.addControl(
+        new maplibregl.NavigationControl({ visualizePitch: true }),
+        "top-right",
+      );
+      map.addControl(
+        new maplibregl.ScaleControl({ unit: "metric" }),
+        "bottom-left",
+      );
+      map.addControl(
+        new maplibregl.GeolocateControl({ trackUserLocation: true }),
+        "top-right",
+      );
+
+      const status = document.getElementById("status");
+      map.on("load", () => {
+        status.textContent = "carte chargée ✓";
+        status.className = "st ok";
+      });
+      map.on("error", (e) => {
+        console.error(e && e.error);
+        status.textContent =
+          "erreur : " + ((e && e.error && e.error.message) || "voir console");
+        status.className = "st err";
+      });
+    </script>
+  </body>
+</html>
