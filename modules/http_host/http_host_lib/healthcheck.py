@@ -11,6 +11,9 @@ from http_host_lib.config import config
 # a tile over Paris, z14 is the max zoom of the OFM planet
 SAMPLE_TILE = dict(z=14, x=8297, y=5637)
 
+# explicit UA so the self-traffic is identifiable (and excluded) in the origin stats
+USER_AGENT = 'ofm-healthcheck'
+
 REALERT_HOURS = 24
 
 DEFAULT_MIN_FREE_GB = 300
@@ -55,7 +58,9 @@ def check_area(domain: str, area: str) -> list[str]:
 
     tilejson_url = f'https://{domain}/{area}'
     try:
-        r = requests.get(tilejson_url, timeout=10, verify=verify_certs)
+        r = requests.get(
+            tilejson_url, timeout=10, verify=verify_certs, headers={'User-Agent': USER_AGENT}
+        )
     except Exception as e:
         return [f'{tilejson_url} injoignable ({e.__class__.__name__})']
     if r.status_code != 200:
@@ -72,7 +77,9 @@ def check_area(domain: str, area: str) -> list[str]:
     for k, v in SAMPLE_TILE.items():
         tile_url = tile_url.replace('{' + k + '}', str(v))
     try:
-        r = requests.get(tile_url, timeout=10, verify=verify_certs)
+        r = requests.get(
+            tile_url, timeout=10, verify=verify_certs, headers={'User-Agent': USER_AGENT}
+        )
         if r.status_code != 200:
             issues.append(f'tuile {tile_url} repond HTTP {r.status_code} au lieu de 200')
     except Exception as e:

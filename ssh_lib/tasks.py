@@ -3,6 +3,7 @@ import subprocess
 import sys
 
 from ssh_lib import (
+    ASSETS_DIR,
     CONFIG_DIR,
     HTTP_HOST_BIN,
     MODULES_DIR,
@@ -94,16 +95,22 @@ def prepare_http_host(c):
     c.sudo('mkdir -p /data/ofm/http_host/logs')
     c.sudo('chown ofm:ofm /data/ofm/http_host/logs')
 
-    c.sudo('rm -rf /data/ofm/http_host/logs_nginx')
+    # not wiped on redeploy: the access logs feed the origin stats (14-day window)
     c.sudo('mkdir -p /data/ofm/http_host/logs_nginx')
     c.sudo('chown nginx:nginx /data/ofm/http_host/logs_nginx')
+
+    # daily rotation of the nginx access/error logs, 14 days retention
+    put(c, f'{ASSETS_DIR}/nginx/logrotate_ofm_http_host', '/etc/logrotate.d/ofm_http_host', permissions=644)
 
     # dirs for externally-deposited custom assets: contents must survive redeploys
     c.sudo('mkdir -p /data/ofm/http_host/tiles')
     c.sudo('mkdir -p /data/ofm/http_host/assets/styles/custom')
+    # config holds blocked_origins.txt, must survive redeploys
+    c.sudo('mkdir -p /data/ofm/http_host/config')
     c.sudo(
         'chown ofm:ofm /data/ofm/http_host/tiles /data/ofm/http_host/assets '
-        '/data/ofm/http_host/assets/styles /data/ofm/http_host/assets/styles/custom'
+        '/data/ofm/http_host/assets/styles /data/ofm/http_host/assets/styles/custom '
+        '/data/ofm/http_host/config'
     )
 
     upload_http_host_files(c)
@@ -118,10 +125,12 @@ def prepare_http_host(c):
         )
         put(c, MODULES_DIR / 'http_host' / 'cron.d' / 'ofm_roundrobin_reader', '/etc/cron.d/')
 
-    # healthcheck with Slack alerting, only installed when a Slack bot is configured
-    c.sudo('rm -f /etc/cron.d/ofm_healthcheck')
+    # healthcheck + weekly origin-stats report with Slack alerting,
+    # only installed when a Slack bot is configured
+    c.sudo('rm -f /etc/cron.d/ofm_healthcheck /etc/cron.d/ofm_stats_report')
     if dotenv_val('SLACK_BOT_TOKEN') and dotenv_val('SLACK_CHANNEL'):
         put(c, MODULES_DIR / 'http_host' / 'cron.d' / 'ofm_healthcheck', '/etc/cron.d/')
+        put(c, MODULES_DIR / 'http_host' / 'cron.d' / 'ofm_stats_report', '/etc/cron.d/')
 
     upload_demo_home(c)
 

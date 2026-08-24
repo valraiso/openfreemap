@@ -170,6 +170,32 @@ Setup:
 2. Set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` (channel ID, not name) in `config/.env`. Leaving them empty disables the cron at deploy time.
 3. Redeploy (`./init-server.py http-host-autoupdate HOSTNAME`), or run `http_host.py healthcheck` manually on the server to test.
 
+## Origin statistics & abusive-origin blocking (this fork)
+
+The nginx access log is enabled (upstream has it off), **without any IP address** — the only client attribution is the `Origin` and `Referer` headers, which identify the *website* using the tiles, not the visitor. Logs are JSON lines in `/data/ofm/http_host/logs_nginx/le-access.jsonl` (fields: time, status, bytes, dataset, blocked flag, origin, referer, user-agent), rotated daily by logrotate with 14 days retention. This directory is no longer wiped on redeploy.
+
+### Statistics
+
+- On demand, on the server: `sudo -u ofm /data/ofm/venv/bin/python /data/ofm/http_host/bin/http_host.py stats [--days N]` — table of requests / GB / blocked / statuses per origin, plus per-dataset counts. Attribution: Origin host, falling back to the Referer host, then to the user-agent (shown as `(ua) …`, truncated to 40 chars); `(none)` when all three are absent. The healthcheck identifies itself with the `ofm-healthcheck` user-agent and its self-traffic is excluded from the stats.
+- Weekly Slack report: cron `/etc/cron.d/ofm_stats_report` (Monday 08:05, server local time) posts the last 7 days to the same Slack channel as the healthcheck. Installed at deploy only when `SLACK_BOT_TOKEN`/`SLACK_CHANNEL` are set in `config/.env`.
+
+### Blocking an abusive origin
+
+```
+sudo /data/ofm/venv/bin/python /data/ofm/http_host/bin/http_host.py block evil.example
+sudo /data/ofm/venv/bin/python /data/ofm/http_host/bin/http_host.py unblock evil.example
+sudo /data/ofm/venv/bin/python /data/ofm/http_host/bin/http_host.py blocked   # list
+```
+
+Requests whose `Origin` **or** `Referer` host matches a blocked domain get a `403` (logged with `"blocked": 1`). Semantics:
+
+- blocking a domain also blocks **all its subdomains**;
+- matching is case-insensitive, scheme and port are ignored;
+- enter IDN domains in punycode form (`xn--…`);
+- this targets abusive *websites* — a non-browser scraper can omit or spoof these headers, this is not a DDoS defense.
+
+The list lives in `/data/ofm/http_host/config/blocked_origins.txt` (one domain per line, `#` comments allowed) and **survives redeploys**. It can also be edited by hand, then applied with `sudo … http_host.py nginx-config`. The nginx `map` file (`/data/nginx/config/ofm_blocked.conf`) is generated from it on every deploy/sync/block/unblock — never edit that one.
+
 ---
 
 #### Deploy tile-gen server (optional)

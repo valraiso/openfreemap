@@ -1,0 +1,13 @@
+/data/ofm/http_host/logs_nginx/*.jsonl /data/ofm/http_host/logs_nginx/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0644 nginx nginx
+    sharedscripts
+    postrotate
+        [ -f /var/run/nginx.pid ] && kill -USR1 "$(cat /var/run/nginx.pid)"
+    endscript
+}

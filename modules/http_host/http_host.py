@@ -6,6 +6,7 @@ import click
 from http_host_lib.assets import (
     download_assets,
 )
+from http_host_lib.blocklist import block_domain, list_blocked, unblock_domain
 from http_host_lib.btrfs import (
     download_area_version,
     get_versions_for_area,
@@ -13,6 +14,7 @@ from http_host_lib.btrfs import (
 from http_host_lib.healthcheck import run_healthcheck
 from http_host_lib.mount import auto_mount
 from http_host_lib.nginx import write_nginx_config
+from http_host_lib.stats import aggregate, format_text, run_stats_report
 from http_host_lib.sync import auto_clean_btrfs, full_sync
 from http_host_lib.versions import fetch_version_files
 
@@ -116,6 +118,59 @@ def healthcheck():
     """
 
     sys.exit(run_healthcheck())
+
+
+@cli.command()
+@click.option('--days', default=7, help='Window in days (default 7)')
+def stats(days: int):
+    """
+    Aggregates the nginx access logs by request origin (Origin/Referer host,
+    no IP is ever logged) and prints a table: requests, bytes, blocked, statuses.
+    """
+
+    print(format_text(aggregate(days)))
+
+
+@cli.command(name='stats-report')
+def stats_report():
+    """
+    Posts the weekly origin-stats report to Slack.
+    Normally called by cron every Monday morning.
+    """
+
+    sys.exit(run_stats_report())
+
+
+@cli.command()
+@click.argument('domain')
+def block(domain: str):
+    """
+    Adds DOMAIN (subdomains included) to the blocked-origins list,
+    regenerates the nginx map and reloads nginx. Requires sudo.
+    Requests with a matching Origin or Referer host get a 403.
+    """
+
+    block_domain(domain)
+
+
+@cli.command()
+@click.argument('domain')
+def unblock(domain: str):
+    """
+    Removes DOMAIN from the blocked-origins list,
+    regenerates the nginx map and reloads nginx. Requires sudo.
+    """
+
+    unblock_domain(domain)
+
+
+@cli.command()
+def blocked():
+    """
+    Lists the currently blocked origins.
+    """
+
+    list_blocked()
 
 
 @cli.command()

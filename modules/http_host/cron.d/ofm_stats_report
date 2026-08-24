@@ -1,0 +1,2 @@
+# rapport hebdomadaire des stats d'origines vers Slack, lundi matin (heure locale serveur)
+5 8 * * 1 ofm     /usr/bin/flock -n /tmp/ofm_stats_report.lockfile -c '/data/ofm/venv/bin/python -u /data/ofm/http_host/bin/http_host.py stats-report >> /data/ofm/http_host/logs/stats_report.log 2>&1'

@@ -87,6 +87,29 @@ GET {{host}}/?style=summer
 Authorization: Basic valraiso:VerUfemboy45
 
 ###############################################################################
+# Blocage d'origines (bloquer d'abord : sudo http_host.py block evil.example)
+###############################################################################
+
+### Origine non bloquée — 200, loggé avec "blocked": 0
+GET {{host}}/planet
+Origin: https://good.example
+
+### Origine bloquée (header Origin) — 403, loggé avec "blocked": 1
+GET {{host}}/planet
+Origin: https://evil.example
+
+### Sous-domaine d'une origine bloquée — 403 (sous-domaines inclus)
+GET {{host}}/planet
+Origin: https://maps.evil.example
+
+### Origine bloquée via le Referer (sans Origin) — 403
+GET {{host}}/planet
+Referer: https://sub.evil.example/page
+
+### Sans Origin ni Referer — 200 (jamais bloqué)
+GET {{host}}/planet
+
+###############################################################################
 # Catch-all
 ###############################################################################
 

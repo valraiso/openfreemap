@@ -1,4 +1,4 @@
-from ssh_lib import ASSETS_DIR
+from ssh_lib import ASSETS_DIR, MODULES_DIR
 from ssh_lib.utils import (
     apt_get_install,
     apt_get_purge,
@@ -45,6 +45,16 @@ def nginx(c):
     put(c, f'{ASSETS_DIR}/nginx/mime.types', '/etc/nginx/')
     put(c, f'{ASSETS_DIR}/nginx/default_disable.conf', '/data/nginx/sites')
     put(c, f'{ASSETS_DIR}/nginx/cloudflare.conf', '/data/nginx/config')
+
+    # empty fallback blocklist map: /data/nginx/config was just wiped but the
+    # persisted site confs in /data/nginx/sites and the log_format reference
+    # $ofm_blocked; the real map is regenerated from blocked_origins.txt by
+    # http_host.py nginx-config (do NOT import http_host_lib here: its config.py
+    # loads config.json at import time)
+    blocked_template = (
+        MODULES_DIR / 'http_host' / 'http_host_lib' / 'nginx_confs' / 'ofm_blocked.conf'
+    ).read_text()
+    put_str(c, '/data/nginx/config/ofm_blocked.conf', blocked_template.replace('__BLOCKED_ENTRIES__', ''))
 
     sudo_cmd(c, 'curl https://ssl-config.mozilla.org/ffdhe2048.txt -o /etc/nginx/ffdhe2048.txt')
 

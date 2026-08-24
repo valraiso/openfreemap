@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from http_host_lib.blocklist import write_map_conf
 from http_host_lib.config import config
 from http_host_lib.utils import python_venv_executable
 
@@ -12,6 +13,10 @@ def write_nginx_config():
 
     if not config.mnt_dir.exists():
         sys.exit('  mount needs to be run first')
+
+    # regenerate the blocked-origins map from the persistent list
+    # (/data/nginx/config is wiped at deploy, blocked_origins.txt is not)
+    write_map_conf()
 
     curl_text_mix = ''
 
