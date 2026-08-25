@@ -66,6 +66,8 @@ The only way this project can possibly work is to be super focused about what it
 
 See [self hosting docs](docs/self_hosting.md).
 
+Running the autoupdate host? [Checking whether the OFM sync ran and succeeded](docs/self_hosting.md#checking-whether-the-ofm-sync-ran-and-succeeded-this-fork) explains how to tell an attempted update from a successful one (cron journal, `http_host_sync.log`, version files), and how to force a sync by hand.
+
 ## What is the tech stack?
 
 There is no tile server running; only Btrfs partition images with 300 million hard-linked files. This was my idea; I haven't read about anyone else doing this in production, but it works really well.

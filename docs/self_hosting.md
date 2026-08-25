@@ -14,7 +14,7 @@ There is a 99.9% chance you only need **http-host**. Tile-gen is slow, needs a h
 
 **http-host**: 300 GB disk space for hosting a single run. SSD is recommended, but not required.
 
-> Note: the sync requires roughly `3 × compressed_planet_size` of free space before downloading (compressed `.gz` + uncompressed btrfs image held at the same time). The planet `.gz` is currently ~96 GB, so ~290 GB free is needed for a single run. In **autoupdate** mode the weekly sync downloads the new version while the previous one is still mounted (cleanup runs afterwards), so plan for extra headroom — 350–400 GB is a safer target.
+> Note: a download needs the compressed `.gz` and the uncompressed btrfs image at the same time, so it requires `gz_size + image_size` of free space — ~270 GB in Aug 2026 (`.gz` 98 GB, image 164 GB), and growing every week. In **autoupdate** mode the new version is downloaded while the previous one is still mounted (cleanup runs afterwards), so the volume has to hold one run plus that peak: ~450 GB usable is the realistic minimum, with [`SINGLE_PLANET=true`](#keeping-a-single-planet-run-this-fork). Upstream's default (two runs kept) needs roughly 150 GB more.
 
 **tile-gen**: 500 GB SDD and at least 64 GB ram
 
@@ -159,8 +159,8 @@ A cron task (`/etc/cron.d/ofm_healthcheck`, every 5 minutes) runs `http_host.py 
 
 - `https://DOMAIN/planet` returns HTTP 200 with a valid TileJSON (and `/monaco` too);
 - a sample tile from that TileJSON returns HTTP 200;
-- the served version matches `/data/ofm/config/deployed_versions/{area}.txt` — a mismatch means the sync is stuck (typically out of disk space);
-- free disk space is above `HEALTHCHECK_MIN_FREE_GB` (default 300 GB — a planet download needs about 3× the size of the `.gz` in free space).
+- the served version matches `/data/ofm/config/deployed_versions/{area}.txt` — a mismatch means the sync is stuck (typically out of disk space) and `/planet` is serving a stale run;
+- free disk space is enough for the **next** planet download, computed from the size of the newest remote `.gz` plus the local image size (~270 GB in Aug 2026, growing every week). `HEALTHCHECK_MIN_FREE_GB` in `config/.env` is the fallback threshold, used only when that size cannot be fetched (default 300 GB).
 
 On failure it posts to a Slack channel via a bot token (`chat.postMessage`), then stays quiet: one message per state change (failure/recovery) plus a daily reminder while the failure lasts. State is kept in `/data/ofm/http_host/healthcheck_state.json`, logs in `/data/ofm/http_host/logs/healthcheck.log`.
 
@@ -170,9 +170,99 @@ Setup:
 2. Set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` (channel ID, not name) in `config/.env`. Leaving them empty disables the cron at deploy time.
 3. Redeploy (`./init-server.py http-host-autoupdate HOSTNAME`), or run `http_host.py healthcheck` manually on the server to test.
 
+## Keeping a single planet run (this fork)
+
+Upstream keeps **two** planet runs on disk (the deployed one and the newest one). On a 500 GB volume that leaves too little free space for the next download, so the sync skips the update every night — silently, since a skipped download is not an error.
+
+Set `SINGLE_PLANET=true` in `config/.env` and redeploy to keep **only the run that is actually served**:
+
+- `auto_clean_btrfs` keeps the `deployed` planet run only. While that run is not downloaded yet, the newest local run is kept instead — the last servable run is never deleted. `monaco` is unaffected (its runs are 275 MB).
+- the sync no longer downloads the planet `latest` run, only `deployed`: a second ~150 GB run would be deleted by the cleanup right away and re-downloaded the next night.
+- the free-space requirement checked before a download is computed from reality — `gz size + local image size × 1.05` — instead of upstream's `3 × gz`. The peak usage is the `.gz` plus the uncompressed image, which coexist until `unpigz` is done. With no local image to compare with (fresh server), `3 × gz` is used.
+
+Figures on 2026-08-24: planet `.gz` 97.8 GB, image 163.8 GB → 270 GB actually needed. With two runs kept, 138 GB were free (update impossible); with one run, 300 GB (update possible).
+
+Two consequences to be aware of:
+
+- **No spare run.** If the served image is corrupt, the fix is a re-download, not a switch back to the previous version.
+- **The version transition is the peak**: old run mounted + new `.gz` + new image. That peak is what sizes the volume, and it grows with the planet — the healthcheck disk alert (below) is what warns you before it stops fitting.
+
+Independently of this option, `/{area}` now degrades instead of failing: when the deployed run is not available locally, nginx serves the newest mounted run (stale) rather than dropping the `location = /{area}` block and returning **403**. The healthcheck reports the served/deployed mismatch, so a stuck sync is an alert, not an outage.
+
+## Checking whether the OFM sync ran and succeeded (this fork)
+
+In **autoupdate** mode the host picks up new OFM runs by itself (cron `ofm_http_host`, restricted to a night window in this fork). Nothing reports success anywhere, so here is how to tell "attempted" from "succeeded", from the cheapest signal to the most conclusive.
+
+### 1. Was a sync attempted?
+
+```
+sudo journalctl -u cron --since today | grep 'http_host.py sync' | tail -3
+sudo journalctl -u cron --since today | grep -c 'http_host.py sync'
+```
+
+cron logs every launch, even when the run itself prints nothing, and the journal survives redeploys — this is the reliable "it was attempted" signal. Expect one entry per minute of the window (`* 0-4 * * *` server local time, so ~300/day; the journal may print each line twice). Zero entries means the cron is not there: check `cat /etc/cron.d/ofm_http_host` (a `http-host-static` deploy installs no sync cron at all).
+
+`flock -n` allows only one sync at a time, so while a long planet download runs, the launches of the following minutes exit immediately and do nothing. That is expected.
+
+### 2. What did the sync actually do?
+
+```
+sudo tail -50 /data/ofm/http_host/logs/http_host_sync.log
+```
+
+Each run starts with `---`, a UTC timestamp and `Starting sync`, then prints one line per area/version:
+
+| Line                                                                    | Meaning                                                                                                                              |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `file exists, skipping download`                                        | already present locally, nothing to do — the normal case for most runs                                                               |
+| `not enough disk space. Needed: N, free space: M`                       | update attempted and **failed**; a download needs the `.gz` plus the uncompressed image at once (~270 GB for the planet in Aug 2026) |
+| `cannot get remote file size for …`                                     | bucket unreachable, or the version disappeared upstream                                                                              |
+| aria2 progress, then `uncompressing...`                                 | download succeeded                                                                                                                   |
+| `Running auto clean btrfs`, `keeping runs for …`, `removing runs for …` | something changed → cleanup, remount and nginx config rewrite ran                                                                    |
+
+Two things to keep in mind:
+
+- **A run that ends without `Running auto clean btrfs` changed nothing.** A skipped download is not an error: no exception is raised, the sync just moves on. "No traceback" therefore does not mean "planet updated".
+- This file is only written by the cron (a manual run prints to the terminal instead), and `/data/ofm/http_host/logs/` is **wiped on every redeploy** — right after a deploy the file is absent until the next night's run. Fall back to steps 1 and 3 in that case.
+
+### 3. Which version is expected, present, served?
+
+```
+# version OFM says should be deployed (refetched at every sync)
+sudo cat /data/ofm/config/deployed_versions/planet.txt
+# versions actually on disk
+sudo ls -l /data/ofm/http_host/runs/planet /data/ofm/http_host/runs/monaco
+# version actually served
+curl -s https://DOMAIN/planet | head -c 120
+# upstream, for comparison: deployed pointer, then all available runs
+curl -s https://assets.openfreemap.com/deployed_versions/planet.txt
+curl -s https://btrfs.openfreemap.com/files.txt | grep '^areas/planet/.*/done$' | tail -3
+```
+
+How to read it:
+
+- served == local `deployed_versions/planet.txt` == upstream deployed pointer → up to date, nothing to do.
+- the local deployed file names a version **absent** from `runs/planet/` → the sync is stuck: `write_nginx_config` then skips the `location = /planet` block, so `/planet` returns **403** while the versioned URLs keep working. This was the July–August 2026 outage.
+- newest directory in `runs/planet/` older than the newest `done` version upstream → the nightly download of `latest` keeps failing (disk space, most likely). Invisible from the outside for now, but it turns into the 403 above as soon as OFM moves its deployed pointer to that version — so this is the state to catch early.
+
+### 4. Passive monitoring
+
+The [healthcheck](#healthcheck-with-slack-alerting-this-fork) cron (every 5 min) alerts on Slack and logs to `/data/ofm/http_host/logs/healthcheck.log`. It catches the two states that matter: the served version drifting from the deployed one (stuck sync, stale planet) and free space dropping below what the next planet download needs — the second one fires _before_ the first, so an alert about disk space is the signal to act.
+
+What it does **not** cover: it compares the served version with the local deployed file, not with the newest version available upstream. As long as OFM has not promoted a new run, a host unable to download anything looks healthy apart from the disk alert.
+
+### Forcing a sync outside the night window
+
+```
+sudo -u ofm /usr/bin/flock -n /tmp/http_host.lockfile -c \
+  'sudo /data/ofm/venv/bin/python -u /data/ofm/http_host/bin/http_host.py sync'
+```
+
+Run it as `ofm`, not as root: the lockfile in `/tmp` belongs to `ofm` and `fs.protected_regular` prevents root from opening it. Add `--force` after `sync` to redo the mount + nginx config pass even when no version changed. Output goes to the terminal (not to `http_host_sync.log`), so use `tmux` if a real planet download may start — it takes hours.
+
 ## Origin statistics & abusive-origin blocking (this fork)
 
-The nginx access log is enabled (upstream has it off), **without any IP address** — the only client attribution is the `Origin` and `Referer` headers, which identify the *website* using the tiles, not the visitor. Logs are JSON lines in `/data/ofm/http_host/logs_nginx/le-access.jsonl` (fields: time, status, bytes, dataset, blocked flag, origin, referer, user-agent), rotated daily by logrotate with 14 days retention. This directory is no longer wiped on redeploy.
+The nginx access log is enabled (upstream has it off), **without any IP address** — the only client attribution is the `Origin` and `Referer` headers, which identify the _website_ using the tiles, not the visitor. Logs are JSON lines in `/data/ofm/http_host/logs_nginx/le-access.jsonl` (fields: time, status, bytes, dataset, blocked flag, origin, referer, user-agent), rotated daily by logrotate with 14 days retention. This directory is no longer wiped on redeploy.
 
 ### Statistics
 
@@ -192,7 +282,7 @@ Requests whose `Origin` **or** `Referer` host matches a blocked domain get a `40
 - blocking a domain also blocks **all its subdomains**;
 - matching is case-insensitive, scheme and port are ignored;
 - enter IDN domains in punycode form (`xn--…`);
-- this targets abusive *websites* — a non-browser scraper can omit or spoof these headers, this is not a DDoS defense.
+- this targets abusive _websites_ — a non-browser scraper can omit or spoof these headers, this is not a DDoS defense.
 
 The list lives in `/data/ofm/http_host/config/blocked_origins.txt` (one domain per line, `#` comments allowed) and **survives redeploys**. It can also be edited by hand, then applied with `sudo … http_host.py nginx-config`. The nginx `map` file (`/data/nginx/config/ofm_blocked.conf`) is generated from it on every deploy/sync/block/unblock — never edit that one.
 

@@ -247,21 +247,27 @@ def create_latest_locations(*, local: str, domain: str) -> str:
         with open(file) as fp:
             version = fp.read().strip()
 
+        # the deployed run is not always downloaded: it can still be downloading, or
+        # the download can have failed (typically out of disk space). Serving the
+        # newest run we do have keeps /{area} up, stale, instead of returning a 403
+        # until the next successful sync. The healthcheck alerts on the mismatch.
+        if not is_servable(area=area, version=version, local=local):
+            fallback = newest_servable_version(area=area, local=local)
+            if not fallback:
+                print(f'    error with latest: no servable run for {area}, skipping /{area}')
+                continue
+
+            print(
+                f'    deployed version {version} not available locally,'
+                f' serving /{area} from {fallback} instead (stale)'
+            )
+            version = fallback
+
         print(f'  linking latest version for {area}: {version}')
 
-        # checking runs dir
         run_dir = config.runs_dir / area / version
         tilejson_path = run_dir / f'tilejson-{local}.json'
-        if not tilejson_path.is_file():
-            print(f'    error with latest: {tilejson_path} does not exist')
-            continue
-
-        # checking mnt dir
         mnt_dir = Path(f'/mnt/ofm/{area}-{version}')
-        mnt_file = mnt_dir / 'metadata.json'
-        if not mnt_file.is_file():
-            print(f'    error with latest: {mnt_file} does not exist')
-            continue
 
         # latest
         location_str += f"""
@@ -325,6 +331,43 @@ def create_latest_locations(*, local: str, domain: str) -> str:
         """
 
     return location_str
+
+
+def is_servable(*, area: str, version: str, local: str) -> bool:
+    """
+    A run can be served when its TileJSON has been written (create_version_location)
+    and its btrfs image is mounted
+    """
+
+    tilejson_path = config.runs_dir / area / version / f'tilejson-{local}.json'
+    if not tilejson_path.is_file():
+        print(f'    {tilejson_path} does not exist')
+        return False
+
+    mnt_file = Path(f'/mnt/ofm/{area}-{version}') / 'metadata.json'
+    if not mnt_file.is_file():
+        print(f'    {mnt_file} does not exist')
+        return False
+
+    return True
+
+
+def newest_servable_version(*, area: str, local: str) -> str | None:
+    """
+    Newest mounted and servable version of an area, None if there is none
+    """
+
+    mounted_versions = sorted(
+        subdir.name.split('-', 1)[1]
+        for subdir in config.mnt_dir.iterdir()
+        if subdir.is_dir() and subdir.name.startswith(f'{area}-')
+    )
+
+    for version in reversed(mounted_versions):
+        if is_servable(area=area, version=version, local=local):
+            return version
+
+    return None
 
 
 def write_roundrobin_reader_script(domain_roundrobin):

@@ -31,8 +31,14 @@ def full_sync(force=False):
 
     # download latest and deployed planet
     if not config.ofm_config.get('skip_planet'):
-        btrfs_downloaded += download_area_version(area='planet', version='latest')
-        btrfs_downloaded += download_area_version(area='planet', version='deployed')
+        if config.ofm_config.get('single_planet'):
+            # only the served version: downloading "latest" as well would need a
+            # second ~150 GB run on disk, which auto_clean_btrfs would then delete
+            # right away, re-downloading it every night
+            btrfs_downloaded += download_area_version(area='planet', version='deployed')
+        else:
+            btrfs_downloaded += download_area_version(area='planet', version='latest')
+            btrfs_downloaded += download_area_version(area='planet', version='deployed')
 
     if btrfs_downloaded or versions_changed or assets_changed or force:
         auto_clean_btrfs()
@@ -51,9 +57,16 @@ def auto_clean_btrfs():
     1. The newest one available locally
     2. The one currently deployed, specified in /data/ofm/config/deployed_versions
     3. If there is no deployed version, then we include the second newest one
+
+    With single_planet (SINGLE_PLANET=true), the planet is an exception: only the
+    deployed run is kept, the one actually served. Two planet runs (~300 GB) plus
+    the ~270 GB a new download needs don't fit on a 500 GB volume, which is what
+    silently blocked the updates until August 2026.
     """
 
     print('Running auto clean btrfs')
+
+    single_planet = config.ofm_config.get('single_planet')
 
     for area in config.areas:
         area_dir = config.runs_dir / area
@@ -64,22 +77,28 @@ def auto_clean_btrfs():
 
         versions_to_keep = set()
 
-        # add newest version
-        if local_versions:
-            versions_to_keep.add(local_versions[-1])
+        deployed_version = local_deployed_version(area)
 
-        # add deployed version
-        try:
-            deployed_version_file = config.deployed_versions_dir / f'{area}.txt'
-            deployed_version = deployed_version_file.read_text().strip()
-            if (config.runs_dir / area / deployed_version).exists():
+        if single_planet and area == 'planet':
+            # keep the deployed run only, falling back to the newest local one while
+            # the deployed run is not downloaded yet: never delete the last run we
+            # are able to serve
+            keep = deployed_version or (local_versions[-1] if local_versions else None)
+            if keep:
+                versions_to_keep.add(keep)
+
+        else:
+            # add newest version
+            if local_versions:
+                versions_to_keep.add(local_versions[-1])
+
+            # add deployed version
+            if deployed_version:
                 versions_to_keep.add(deployed_version)
-        except Exception:
-            pass
 
-        # if still only one version, we include the second newest one
-        if len(versions_to_keep) == 1 and len(local_versions) >= 2:
-            versions_to_keep.add(local_versions[-2])
+            # if still only one version, we include the second newest one
+            if len(versions_to_keep) == 1 and len(local_versions) >= 2:
+                versions_to_keep.add(local_versions[-2])
 
         print(f'  keeping runs for {area}: {sorted(versions_to_keep)}')
 
@@ -92,3 +111,20 @@ def auto_clean_btrfs():
             print(f'  removing runs for {area}: {version}')
             version_dir = config.runs_dir / area / version
             shutil.rmtree(version_dir)
+
+
+def local_deployed_version(area: str) -> str | None:
+    """
+    Version listed in /data/ofm/config/deployed_versions/{area}.txt,
+    None when the file is missing or the run is not downloaded locally
+    """
+
+    try:
+        deployed_version = (config.deployed_versions_dir / f'{area}.txt').read_text().strip()
+    except Exception:
+        return None
+
+    if not (config.runs_dir / area / deployed_version).exists():
+        return None
+
+    return deployed_version

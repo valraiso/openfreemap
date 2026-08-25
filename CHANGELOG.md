@@ -8,6 +8,10 @@ Le format s'appuie sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Added
 
+- 2026-08-24 — Option `SINGLE_PLANET=true` (`config/.env` → `single_planet` dans `config.json`) : un seul run planet conservé sur disque, celui réellement servi (version `deployed`), avec repli sur le run local le plus récent tant que la version `deployed` n'est pas téléchargée (on ne supprime jamais le dernier run servable). `monaco` garde le comportement upstream. Le run `latest` du planet n'est plus téléchargé dans ce mode (il serait supprimé aussitôt, donc re-téléchargé chaque nuit). Documentation : section « Keeping a single planet run » de `docs/self_hosting.md`, décision D004.
+
+- 2026-08-24 — Documentation : section « Checking whether the OFM sync ran and succeeded » dans `docs/self_hosting.md` (+ pointeur depuis le README) — comment distinguer une MAJ OFM *tentée* d'une MAJ *réussie* : journal cron (`journalctl -u cron | grep 'http_host.py sync'`, seule trace qui survit aux redeploys), lecture de `logs/http_host_sync.log` (tableau des lignes typiques : `file exists, skipping download`, `not enough disk space`, `Running auto clean btrfs` = quelque chose a changé), comparaison version locale / `deployed_versions/*.txt` / version servie / dernières versions du bucket, limites du healthcheck (il compare servi vs deployed, pas vs dernier dispo), et commande de sync manuel hors fenêtre nocturne (à lancer en tant qu'`ofm` à cause du lockfile `/tmp`).
+
 - 2026-08-21 — Stats d'origines et blocage d'origines abusives :
   - **Access log nginx activé, toujours sans adresse IP** : lignes JSON dans `/data/ofm/http_host/logs_nginx/le-access.jsonl` (time, status, bytes, dataset, flag blocked, Origin, Referer, user-agent), rotation logrotate quotidienne avec 14 jours de rétention (`/etc/logrotate.d/ofm_http_host`).
   - **Stats** : commande `http_host.py stats [--days N]` (table par origine : requêtes / GB / bloquées / statuts, + volumes par dataset) et rapport Slack hebdomadaire `http_host.py stats-report` via le cron `/etc/cron.d/ofm_stats_report` (lundi 08:05, installé seulement si `SLACK_BOT_TOKEN`/`SLACK_CHANNEL` sont renseignés).
@@ -26,6 +30,10 @@ Le format s'appuie sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Changed
 
+- 2026-08-24 — Besoin d'espace disque avant téléchargement estimé au réel : `taille du .gz + taille de l'image locale × 1,05` (le pic est le `.gz` et l'image décompressée qui coexistent le temps de `unpigz`), au lieu du `3 × .gz` upstream — 270 Go au lieu de 294 Go pour le planet d'août 2026, ce qui fait la différence entre une MAJ possible et une MAJ sautée sur un volume de 500 Go. Repli sur `3 × .gz` en l'absence d'image locale de référence (serveur neuf). Le log de sync affiche désormais le besoin et l'espace libre en Go en plus des octets.
+
+- 2026-08-24 — Healthcheck : la vérification disque compare l'espace libre au besoin réel de la **prochaine** MAJ planet (calculé sur le `.gz` distant le plus récent) au lieu du seuil fixe `HEALTHCHECK_MIN_FREE_GB`, qui devient le repli utilisé quand le bucket btrfs est injoignable. L'alerte reste ainsi pertinente à mesure que le planet grossit, sans réglage manuel.
+
 - 2026-08-21 — Stats d'origines : les requêtes sans `Origin` ni `Referer` sont désormais détaillées par user-agent (`(ua) curl/8.6.0`, tronqué à 40 caractères) au lieu d'être agrégées sous `(none)` ; `(none)` ne reste que pour les requêtes sans aucun des trois headers. Le healthcheck s'identifie avec le user-agent `ofm-healthcheck` (au lieu du `python-requests` par défaut) et son trafic interne (~288 req/jour) est exclu des stats.
 
 - 2026-08-21 — `/data/ofm/http_host/logs_nginx/` n'est plus effacé au redeploy : l'historique des access logs alimente les stats d'origines (fenêtre de 14 jours assurée par logrotate).
@@ -37,5 +45,7 @@ Le format s'appuie sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - 2026-07-13 — Les styles (`/styles/{name}`) sont désormais cachés **5 minutes** au lieu d'1 jour : ils évoluent régulièrement et le `sub_filter` nginx empêche la revalidation conditionnelle (ETag/Last-Modified supprimés).
 
 ### Fixed
+
+- 2026-08-24 — `/planet` ne renvoie plus 403 quand la version `deployed` n'est pas disponible localement (téléchargement en cours ou échoué) : `create_latest_locations` sert alors `/{area}` depuis le run monté le plus récent — version périmée mais servie — au lieu d'omettre le bloc `location = /{area}`. C'est le mécanisme exact de la panne de juillet-août 2026 ; il devient une dégradation signalée par le healthcheck (écart version servie / version deployed) au lieu d'une panne.
 
 - `ssh_lib/pkg_base.py` : retrait du paquet `ctop` de la liste des paquets de base. Il n'est plus disponible dans les dépôts Ubuntu récents (26.04 « resolute ») et faisait échouer `apt-get install` (donc `prepare_shared`) lors du déploiement http-host.

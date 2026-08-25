@@ -255,6 +255,7 @@ def upload_config_json(c):
     domain_direct = dotenv_val('DOMAIN_DIRECT').lower()
     domain_roundrobin = dotenv_val('DOMAIN_ROUNDROBIN').lower()
     skip_planet = dotenv_val('SKIP_PLANET').lower() == 'true'
+    single_planet = dotenv_val('SINGLE_PLANET').lower() == 'true'
     self_signed_certs = dotenv_val('SELF_SIGNED_CERTS').lower() == 'true'
     letsencrypt_email = dotenv_val('LETSENCRYPT_EMAIL').lower()
 
@@ -271,6 +272,7 @@ def upload_config_json(c):
         'domain_roundrobin': domain_roundrobin,
         'letsencrypt_email': letsencrypt_email,
         'skip_planet': skip_planet,
+        'single_planet': single_planet,
         'self_signed_certs': self_signed_certs,
         'http_host_list': http_host_list,
         'telegram_token': dotenv_val('TELEGRAM_TOKEN'),

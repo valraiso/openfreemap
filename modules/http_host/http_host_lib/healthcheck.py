@@ -5,6 +5,7 @@ from pathlib import Path
 
 import requests
 
+from http_host_lib.btrfs import next_download_needed_space
 from http_host_lib.config import config
 
 
@@ -103,19 +104,39 @@ def check_area(domain: str, area: str) -> list[str]:
 
 def check_disk_space() -> list[str]:
     """
-    Early warning, before the sync starts failing: a planet download needs
-    about 3x the size of the .gz in free space (~280 GB in Aug 2026, growing).
-    Threshold configurable with HEALTHCHECK_MIN_FREE_GB in config/.env.
+    Early warning, before the sync starts silently skipping updates: a planet
+    download needs the .gz and the uncompressed image at the same time (~270 GB in
+    Aug 2026, growing every week). The requirement is computed from the actual size
+    of the newest remote .gz, so the alert stays meaningful as the planet grows.
+    HEALTHCHECK_MIN_FREE_GB in config/.env is the fallback threshold, used when the
+    btrfs bucket is unreachable.
     """
 
-    min_free_gb = config.ofm_config.get('healthcheck_min_free_gb') or DEFAULT_MIN_FREE_GB
     # fallback for local testing, where /data/ofm doesn't exist
     base_dir = config.http_host_dir if config.http_host_dir.exists() else Path('/')
-    free_gb = shutil.disk_usage(base_dir).free / 1e9
-    if free_gb < min_free_gb:
+    free = shutil.disk_usage(base_dir).free
+
+    needed = None
+    if not config.ofm_config.get('skip_planet'):
+        try:
+            needed = next_download_needed_space('planet')
+        except Exception as e:
+            print(f'  taille du prochain run planet indisponible: {e.__class__.__name__}')
+
+    if needed:
+        if free < needed:
+            return [
+                f'espace disque insuffisant pour la prochaine MAJ planet:'
+                f' {free / 1e9:.0f} GB libres < {needed / 1e9:.0f} GB requis (gz + image),'
+                ' le telechargement sera saute'
+            ]
+        return []
+
+    min_free_gb = config.ofm_config.get('healthcheck_min_free_gb') or DEFAULT_MIN_FREE_GB
+    if free / 1e9 < min_free_gb:
         return [
-            f'espace disque faible: {free_gb:.0f} GB libres < {min_free_gb} GB,'
-            ' le prochain telechargement planet risque d\'echouer'
+            f'espace disque faible: {free / 1e9:.0f} GB libres < {min_free_gb} GB (seuil fixe,'
+            ' besoin reel non calculable), le prochain telechargement planet risque d\'echouer'
         ]
     return []
 
