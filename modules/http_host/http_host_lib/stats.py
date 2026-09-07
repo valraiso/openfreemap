@@ -7,7 +7,7 @@ from typing import Iterator
 
 from http_host_lib.blocklist import read_blocklist
 from http_host_lib.config import config
-from http_host_lib.healthcheck import HEALTHCHECK_USER_AGENT, USER_AGENT as HEALTHCHECK_UA
+from http_host_lib.healthcheck import HEALTHCHECK_USER_AGENT
 from http_host_lib.healthcheck import send_slack
 
 
@@ -79,9 +79,6 @@ def ua_of(rec: dict, origin: str | None = None) -> str:
         return HAS_ORIGIN
 
     ua = rec.get('http_user_agent', '')
-    if ua and ua == HEALTHCHECK_USER_AGENT:
-        return HAS_ORIGIN  # Skip this UA in the stats, it's just the healthcheck cron
-
     if ua and ua != '-':
         return f'(ua) {ua}'
     return '(none)'
@@ -98,7 +95,7 @@ def aggregate(days: int) -> dict:
 
     for rec in iter_records(days):
         # self-traffic of the healthcheck cron, not a real consumer
-        if rec.get('http_user_agent') == HEALTHCHECK_UA:
+        if rec.get('http_user_agent') == HEALTHCHECK_USER_AGENT:
             continue
 
         origin = origin_of(rec) or '(none)'
