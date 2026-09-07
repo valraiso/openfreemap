@@ -7,7 +7,7 @@ from typing import Iterator
 
 from http_host_lib.blocklist import read_blocklist
 from http_host_lib.config import config
-from http_host_lib.healthcheck import USER_AGENT as HEALTHCHECK_UA
+from http_host_lib.healthcheck import HEALTHCHECK_USER_AGENT, USER_AGENT as HEALTHCHECK_UA
 from http_host_lib.healthcheck import send_slack
 
 
@@ -15,7 +15,7 @@ LOGS_NGINX_DIR = config.http_host_dir / 'logs_nginx'
 
 HOST_RE = re.compile(r'^https?://(?P<h>[^/:]+)', re.IGNORECASE)
 
-UA_MAX_LEN = 40
+HAS_ORIGIN = '(has origin)'
 
 
 def iter_records(days: int) -> Iterator[dict]:
@@ -68,12 +68,22 @@ def origin_of(rec: dict) -> str:
         if m:
             return m.group('h').lower()
 
-    ua = rec.get('http_user_agent', '')
-    if ua and ua != '-':
-        if len(ua) > UA_MAX_LEN:
-            ua = ua[: UA_MAX_LEN - 1] + '…'
-        return f'(ua) {ua}'
+    return None
 
+
+def ua_of(rec: dict, origin: str | None = None) -> str:
+    """
+    Returns a short user-agent string for stats, or '(none)' if missing.
+    """
+    if origin is not None:
+        return HAS_ORIGIN
+
+    ua = rec.get('http_user_agent', '')
+    if ua and ua == HEALTHCHECK_USER_AGENT:
+        return HAS_ORIGIN  # Skip this UA in the stats, it's just the healthcheck cron
+
+    if ua and ua != '-':
+        return f'(ua) {ua}'
     return '(none)'
 
 
@@ -83,6 +93,7 @@ def aggregate(days: int) -> dict:
 
     total = empty()
     origins: dict[str, dict] = {}
+    uas: dict[str, dict] = {}
     datasets: Counter = Counter()
 
     for rec in iter_records(days):
@@ -90,7 +101,9 @@ def aggregate(days: int) -> dict:
         if rec.get('http_user_agent') == HEALTHCHECK_UA:
             continue
 
-        buckets = [total, origins.setdefault(origin_of(rec), empty())]
+        origin = origin_of(rec) or '(none)'
+        ua = ua_of(rec, origin=origin)
+        buckets = [total, origins.setdefault(origin, empty()), uas.setdefault(ua, empty())]
         for b in buckets:
             b['requests'] += 1
             b['bytes'] += rec.get('body_bytes_sent', 0)
@@ -98,11 +111,17 @@ def aggregate(days: int) -> dict:
             b['statuses'][rec.get('status', 0)] += 1
         datasets[rec.get('dataset') or '(root)'] += 1
 
-    return {'days': days, 'total': total, 'origins': origins, 'datasets': datasets}
+    uas.pop(HAS_ORIGIN, None)  # don't report uas for which we have an origin
+
+    return {'days': days, 'total': total, 'origins': origins, 'uas': uas, 'datasets': datasets}
 
 
 def _top_origins(agg: dict, top: int) -> list[tuple[str, dict]]:
     return sorted(agg['origins'].items(), key=lambda kv: -kv[1]['requests'])[:top]
+
+
+def _top_uas(agg: dict, top: int) -> list[tuple[str, dict]]:
+    return sorted(agg['uas'].items(), key=lambda kv: -kv[1]['requests'])[:top]
 
 
 def _fmt_statuses(statuses: Counter) -> str:
@@ -137,7 +156,7 @@ def format_text(agg: dict, top: int = 25) -> str:
     return '\n'.join(lines)
 
 
-def format_slack(agg: dict, top: int = 15) -> str:
+def format_slack(agg: dict, top: int = 15, top_ua: int = 6) -> str:
     domain = config.ofm_config.get('domain_direct') or 'http-host'
     total = agg['total']
 
@@ -156,15 +175,24 @@ def format_slack(agg: dict, top: int = 15) -> str:
     if not agg['origins']:
         lines.append('- (aucune requete sur la fenetre)')
 
-    if agg['datasets']:
-        top_datasets = ', '.join(f'{d} ({n})' for d, n in agg['datasets'].most_common(8))
-        lines += ['', f'*Datasets* : {top_datasets}']
+    lines += ['', f'*Top {top_ua} user-agents* sans origin (req / GB / % bloquees) :']
+    for ua, s in _top_uas(agg, top_ua):
+        blocked_pct = 100 * s['blocked'] / s['requests'] if s['requests'] else 0
+        lines.append(f'- `{ua}`')
+        lines.append(f'  ↳ {s["requests"]} req, {_gb(s["bytes"])} GB, {blocked_pct:.0f}% bloquees')
+    if not agg['uas']:
+        lines.append('- (aucune requete sur la fenetre)')
+
+    # if agg['datasets']:
+    #     top_datasets = ', '.join(f'{d} ({n})' for d, n in agg['datasets'].most_common(8))
+    #     lines += ['', f'*Datasets* : {top_datasets}']
 
     blocked = read_blocklist()
-    lines += [
-        '',
-        f'*Blocklist courante* : {", ".join(f"`{d}`" for d in blocked) if blocked else "(vide)"}',
-    ]
+    if blocked:
+        lines += [
+            '',
+            f'*Blocklist courante* : {", ".join(f"`{d}`" for d in blocked)}',
+        ]
 
     return '\n'.join(lines)
 

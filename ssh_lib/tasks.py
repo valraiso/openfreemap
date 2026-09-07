@@ -100,7 +100,12 @@ def prepare_http_host(c):
     c.sudo('chown nginx:nginx /data/ofm/http_host/logs_nginx')
 
     # daily rotation of the nginx access/error logs, 14 days retention
-    put(c, f'{ASSETS_DIR}/nginx/logrotate_ofm_http_host', '/etc/logrotate.d/ofm_http_host', permissions=644)
+    put(
+        c,
+        f'{ASSETS_DIR}/nginx/logrotate_ofm_http_host',
+        '/etc/logrotate.d/ofm_http_host',
+        permissions=644,
+    )
 
     # dirs for externally-deposited custom assets: contents must survive redeploys
     c.sudo('mkdir -p /data/ofm/http_host/tiles')
@@ -134,6 +139,13 @@ def prepare_http_host(c):
 
     upload_demo_home(c)
 
+    pip_install_http_host(c)
+
+
+def pip_install_http_host(c):
+    """
+    Install pip dependencies and prepare the http_host module for use.
+    """
     c.sudo(f'{VENV_BIN}/pip install -e {HTTP_HOST_BIN} --use-pep517')
 
 

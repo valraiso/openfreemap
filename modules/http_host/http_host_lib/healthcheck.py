@@ -13,7 +13,7 @@ from http_host_lib.config import config
 SAMPLE_TILE = dict(z=14, x=8297, y=5637)
 
 # explicit UA so the self-traffic is identifiable (and excluded) in the origin stats
-USER_AGENT = 'ofm-healthcheck'
+HEALTHCHECK_USER_AGENT = 'ofm-healthcheck'
 
 REALERT_HOURS = 24
 
@@ -60,7 +60,10 @@ def check_area(domain: str, area: str) -> list[str]:
     tilejson_url = f'https://{domain}/{area}'
     try:
         r = requests.get(
-            tilejson_url, timeout=10, verify=verify_certs, headers={'User-Agent': USER_AGENT}
+            tilejson_url,
+            timeout=10,
+            verify=verify_certs,
+            headers={'User-Agent': HEALTHCHECK_USER_AGENT},
         )
     except Exception as e:
         return [f'{tilejson_url} injoignable ({e.__class__.__name__})']
@@ -79,7 +82,10 @@ def check_area(domain: str, area: str) -> list[str]:
         tile_url = tile_url.replace('{' + k + '}', str(v))
     try:
         r = requests.get(
-            tile_url, timeout=10, verify=verify_certs, headers={'User-Agent': USER_AGENT}
+            tile_url,
+            timeout=10,
+            verify=verify_certs,
+            headers={'User-Agent': HEALTHCHECK_USER_AGENT},
         )
         if r.status_code != 200:
             issues.append(f'tuile {tile_url} repond HTTP {r.status_code} au lieu de 200')
@@ -136,7 +142,7 @@ def check_disk_space() -> list[str]:
     if free / 1e9 < min_free_gb:
         return [
             f'espace disque faible: {free / 1e9:.0f} GB libres < {min_free_gb} GB (seuil fixe,'
-            ' besoin reel non calculable), le prochain telechargement planet risque d\'echouer'
+            " besoin reel non calculable), le prochain telechargement planet risque d'echouer"
         ]
     return []
 
@@ -171,7 +177,9 @@ def notify(domain: str, issues: list[str]):
     else:
         print(f'{now.isoformat()} OK')
         if state['failing']:
-            send_slack(f':white_check_mark: *[{domain}] retour a la normale* (panne depuis {state["since"]})')
+            send_slack(
+                f':white_check_mark: *[{domain}] retour a la normale* (panne depuis {state["since"]})'
+            )
         state = {'failing': False, 'since': None, 'last_alert': None}
 
     try:
