@@ -80,7 +80,7 @@ def ua_of(rec: dict, origin: str | None = None) -> str:
 
     ua = rec.get('http_user_agent', '')
     if ua and ua != '-':
-        return f'(ua) {ua}'
+        return ua
     return '(none)'
 
 
@@ -98,7 +98,7 @@ def aggregate(days: int) -> dict:
         if rec.get('http_user_agent') == HEALTHCHECK_USER_AGENT:
             continue
 
-        origin = origin_of(rec) or '(none)'
+        origin = origin_of(rec)
         ua = ua_of(rec, origin=origin)
         buckets = [total, origins.setdefault(origin, empty()), uas.setdefault(ua, empty())]
         for b in buckets:
