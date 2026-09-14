@@ -159,7 +159,7 @@ def format_slack(agg: dict, top: int = 15, top_ua: int = 6) -> str:
 
     lines = [
         f':bar_chart: *[{domain}] stats origines des {agg["days"]} derniers jours*',
-        f'Total : {total["requests"]} req, {_gb(total["bytes"])} GB envoyes, '
+        f'Total : {total["requests"]} req [{_fmt_statuses(total["statuses"])}], {_gb(total["bytes"])} GB envoyes, '
         f'{total["blocked"]} bloquees',
         '',
         f'*Top {top} origines* (req / GB / % bloquees) :',
