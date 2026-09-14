@@ -123,7 +123,7 @@ def _top_uas(agg: dict, top: int) -> list[tuple[str, dict]]:
 
 def _fmt_statuses(statuses: Counter) -> str:
     return ' '.join(
-        f'{s}:{n}' for s, n in sorted(statuses.items(), key=lambda kv: kv[1], reverse=True)
+        f'`{s}`:{n}' for s, n in sorted(statuses.items(), key=lambda kv: kv[1], reverse=True)
     )
 
 
