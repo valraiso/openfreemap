@@ -122,7 +122,9 @@ def _top_uas(agg: dict, top: int) -> list[tuple[str, dict]]:
 
 
 def _fmt_statuses(statuses: Counter) -> str:
-    return ' '.join(f'{s}:{n}' for s, n in sorted(statuses.items()))
+    return ' '.join(
+        f'{s}:{n}' for s, n in sorted(statuses.items(), key=lambda kv: kv[1], reverse=True)
+    )
 
 
 def _gb(n: int) -> str:
@@ -167,7 +169,7 @@ def format_slack(agg: dict, top: int = 15, top_ua: int = 6) -> str:
     for origin, s in _top_origins(agg, top):
         blocked_pct = 100 * s['blocked'] / s['requests'] if s['requests'] else 0
         lines.append(
-            f'- `{origin}` — {s["requests"]} req, {_gb(s["bytes"])} GB, {blocked_pct:.0f}% bloquees'
+            f'- `{origin}` — {s["requests"]} req  [{_fmt_statuses(s["statuses"])}], {_gb(s["bytes"])} GB, {blocked_pct:.0f}% bloquees'
         )
     if not agg['origins']:
         lines.append('- (aucune requete sur la fenetre)')
