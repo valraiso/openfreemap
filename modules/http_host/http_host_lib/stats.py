@@ -8,8 +8,7 @@ from typing import Iterator
 
 from http_host_lib.blocklist import read_blocklist
 from http_host_lib.config import config
-from http_host_lib.healthcheck import HEALTHCHECK_USER_AGENT
-from http_host_lib.healthcheck import send_slack
+from http_host_lib.healthcheck import HEALTHCHECK_USER_AGENT, send_slack
 
 
 LOGS_NGINX_DIR = config.http_host_dir / 'logs_nginx'
@@ -167,40 +166,80 @@ def _latency_table(agg: dict, top: int = 10) -> list[str]:
     return lines
 
 
+NO_ORIGIN = '(sans origin)'
+
+
 def _top_origins(agg: dict, top: int) -> list[tuple[str, dict]]:
-    return sorted(agg['origins'].items(), key=lambda kv: -kv[1]['requests'])[:top]
+    # requests without Origin nor Referer are bucketed under the None key
+    items = [(o or NO_ORIGIN, s) for o, s in agg['origins'].items()]
+    return sorted(items, key=lambda kv: -kv[1]['requests'])[:top]
 
 
 def _top_uas(agg: dict, top: int) -> list[tuple[str, dict]]:
     return sorted(agg['uas'].items(), key=lambda kv: -kv[1]['requests'])[:top]
 
 
-def _fmt_statuses(statuses: Counter) -> str:
-    return ' '.join(
-        f'`{s}`:{n}' for s, n in sorted(statuses.items(), key=lambda kv: kv[1], reverse=True)
-    )
-
-
 def _gb(n: int) -> str:
     return f'{n / 1e9:.2f}'
 
 
-def format_text(agg: dict, top: int = 25) -> str:
-    total = agg['total']
+ORIGIN_STATUSES = (200, 304, 401, 404, 499)
+
+
+def _origin_row(label: str, s: dict, name_width: int) -> str:
+    if len(label) > name_width:
+        label = label[: name_width - 1] + '…'
+    blocked_pct = 100 * s['blocked'] / s['requests'] if s['requests'] else 0
+    others = s['requests'] - sum(s['statuses'][st] for st in ORIGIN_STATUSES)
+    return (
+        f'{label:<{name_width}} {s["requests"]:>9} {_gb(s["bytes"]):>7} {blocked_pct:>5.0f}%'
+        + ''.join(f' {s["statuses"][st]:>6}' for st in ORIGIN_STATUSES)
+        + f' {others:>6}'
+    )
+
+
+def _origins_table(agg: dict, top: int, name_width: int) -> list[str]:
+    """
+    Fixed-width table: a TOTAL row (all origins) then the top origins (hostname,
+    requests, GB, % blocked, a column per common status, the rest in 'autres'),
+    meant for a monospace block.
+    """
+
     lines = [
-        f'Fenetre: {agg["days"]} jour(s)',
-        f'Total: {total["requests"]} req, {_gb(total["bytes"])} GB, '
-        f'{total["blocked"]} bloquees, statuts [{_fmt_statuses(total["statuses"])}]',
-        '',
-        f'{"origine":<45} {"req":>10} {"GB":>8} {"bloquees":>9}  statuts',
+        f'{"hostname":<{name_width}} {"req":>9} {"GB":>7} {"%bloq":>6}'
+        + ''.join(f' {st:>6}' for st in ORIGIN_STATUSES)
+        + f' {"autres":>6}',
+        _origin_row('TOTAL', agg['total'], name_width),
     ]
-    for origin, s in _top_origins(agg, top):
-        lines.append(
-            f'{origin:<45} {s["requests"]:>10} {_gb(s["bytes"]):>8} {s["blocked"]:>9}'
-            f'  [{_fmt_statuses(s["statuses"])}]'
-        )
+    lines += [_origin_row(origin, s, name_width) for origin, s in _top_origins(agg, top)]
     if len(agg['origins']) > top:
         lines.append(f'... et {len(agg["origins"]) - top} autres origines')
+    return lines
+
+
+def _uas_table(agg: dict, top: int, ua_width: int = 200) -> list[str]:
+    """
+    Fixed-width table of the top user-agents of requests without origin
+    (requests, % blocked, user-agent; no volume), UA last so it can be long.
+    """
+
+    lines = [f'{"req":>9} {"%bloq":>6}  UA']
+    for ua, s in _top_uas(agg, top):
+        blocked_pct = 100 * s['blocked'] / s['requests'] if s['requests'] else 0
+        if len(ua) > ua_width:
+            ua = ua[: ua_width - 1] + '…'
+        lines.append(f'{s["requests"]:>9} {blocked_pct:>5.0f}%  {ua}')
+    if len(agg['uas']) > top:
+        lines.append(f'... et {len(agg["uas"]) - top} autres user-agents')
+    return lines
+
+
+def format_text(agg: dict, top: int = 25) -> str:
+    lines = [
+        f'Fenetre: {agg["days"]} jour(s)',
+        '',
+        *_origins_table(agg, top, name_width=45),
+    ]
 
     lines += ['', 'Par dataset:']
     for dataset, n in agg['datasets'].most_common():
@@ -215,34 +254,24 @@ def format_text(agg: dict, top: int = 25) -> str:
 
 def format_slack(agg: dict, top: int = 15, top_ua: int = 6) -> str:
     domain = config.ofm_config.get('domain_direct') or 'http-host'
-    total = agg['total']
 
-    lines = [
-        f':bar_chart: *[{domain}] stats origines des {agg["days"]} derniers jours*',
-        f'Total : {total["requests"]} req [{_fmt_statuses(total["statuses"])}], {_gb(total["bytes"])} GB envoyes, '
-        f'{total["blocked"]} bloquees',
-        '',
-        f'*Top {top} origines* (req / GB / % bloquees) :',
-    ]
-    for origin, s in _top_origins(agg, top):
-        blocked_pct = 100 * s['blocked'] / s['requests'] if s['requests'] else 0
-        lines.append(
-            f'- `{origin}` — {s["requests"]} req  [{_fmt_statuses(s["statuses"])}], {_gb(s["bytes"])} GB, {blocked_pct:.0f}% bloquees'
-        )
-    if not agg['origins']:
-        lines.append('- (aucune requete sur la fenetre)')
+    lines = [f':bar_chart: *[{domain}] Stats des {agg["days"]} derniers jours*']
 
-    lines += ['', f'*Top {top_ua} user-agents* sans origin (req / GB / % bloquees) :']
-    for ua, s in _top_uas(agg, top_ua):
-        blocked_pct = 100 * s['blocked'] / s['requests'] if s['requests'] else 0
-        lines.append(f'- `{ua}`')
-        lines.append(f'  ↳ {s["requests"]} req, {_gb(s["bytes"])} GB, {blocked_pct:.0f}% bloquees')
-    if not agg['uas']:
+    lines += ['', f'*Top {top} origines* :']
+    if agg['origins']:
+        lines += ['```', *_origins_table(agg, top, name_width=30), '```']
+    else:
         lines.append('- (aucune requete sur la fenetre)')
 
     latency = _latency_table(agg)
     if latency:
-        lines += ['', '*Temps de reponse* (request_time, hors bloquees) :', '```', *latency, '```']
+        lines += ['', '*Temps de reponse* :', '```', *latency, '```']
+
+    lines += ['', f'*Top {top_ua} user-agents* sans origin :']
+    if agg['uas']:
+        lines += ['```', *_uas_table(agg, top_ua), '```']
+    else:
+        lines.append('- (aucune requete sur la fenetre)')
 
     # if agg['datasets']:
     #     top_datasets = ', '.join(f'{d} ({n})' for d, n in agg['datasets'].most_common(8))

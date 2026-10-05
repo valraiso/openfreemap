@@ -32,6 +32,8 @@ Le format s'appuie sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
 ### Changed
 
+- 2026-10-05 — Stats d'origines : le top des origines est désormais un tableau avec une ligne `TOTAL` (toutes origines) en tête, qui remplace l'ancienne ligne « Total », et le top des user-agents sans origine devient lui aussi un tableau (req / % bloquées / UA, sans volume) dans le rapport Slack. Colonnes du tableau des origines (hostname, requêtes, GB, % bloquées, colonnes 200 / 304 / 401 / 404 / 499 et `autres`), dans la CLI `stats` comme dans le rapport Slack (bloc de code pour garder l'alignement). Les requêtes sans `Origin` ni `Referer` s'affichent sous `(sans origin)` (corrige un `TypeError` de `stats` sur la clé `None`).
+
 - 2026-08-24 — Besoin d'espace disque avant téléchargement estimé au réel : `taille du .gz + taille de l'image locale × 1,05` (le pic est le `.gz` et l'image décompressée qui coexistent le temps de `unpigz`), au lieu du `3 × .gz` upstream — 270 Go au lieu de 294 Go pour le planet d'août 2026, ce qui fait la différence entre une MAJ possible et une MAJ sautée sur un volume de 500 Go. Repli sur `3 × .gz` en l'absence d'image locale de référence (serveur neuf). Le log de sync affiche désormais le besoin et l'espace libre en Go en plus des octets.
 
 - 2026-08-24 — Healthcheck : la vérification disque compare l'espace libre au besoin réel de la **prochaine** MAJ planet (calculé sur le `.gz` distant le plus récent) au lieu du seuil fixe `HEALTHCHECK_MIN_FREE_GB`, qui devient le repli utilisé quand le bucket btrfs est injoignable. L'alerte reste ainsi pertinente à mesure que le planet grossit, sans réglage manuel.
