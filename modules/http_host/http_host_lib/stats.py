@@ -1,6 +1,7 @@
 import gzip
 import json
 import re
+from array import array
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
@@ -92,6 +93,9 @@ def aggregate(days: int) -> dict:
     origins: dict[str, dict] = {}
     uas: dict[str, dict] = {}
     datasets: Counter = Counter()
+    # request_time in seconds; array('f') keeps millions of samples compact
+    latency_total = array('f')
+    latency_datasets: dict[str, array] = {}
 
     for rec in iter_records(days):
         # self-traffic of the healthcheck cron, not a real consumer
@@ -106,11 +110,61 @@ def aggregate(days: int) -> dict:
             b['bytes'] += rec.get('body_bytes_sent', 0)
             b['blocked'] += rec.get('blocked', 0)
             b['statuses'][rec.get('status', 0)] += 1
-        datasets[rec.get('dataset') or '(root)'] += 1
+        dataset = rec.get('dataset') or '(root)'
+        datasets[dataset] += 1
+
+        # blocked 403s are answered instantly and would skew the latencies;
+        # records from before request_time was logged have no value
+        rt = rec.get('request_time')
+        if isinstance(rt, (int, float)) and not rec.get('blocked'):
+            latency_total.append(rt)
+            latency_datasets.setdefault(dataset, array('f')).append(rt)
 
     uas.pop(HAS_ORIGIN, None)  # don't report uas for which we have an origin
 
-    return {'days': days, 'total': total, 'origins': origins, 'uas': uas, 'datasets': datasets}
+    return {
+        'days': days,
+        'total': total,
+        'origins': origins,
+        'uas': uas,
+        'datasets': datasets,
+        'latency_total': latency_total,
+        'latency_datasets': latency_datasets,
+    }
+
+
+def percentile(sorted_values, p: float) -> float:
+    """
+    Nearest-rank percentile of an already sorted sequence (exact, no interpolation).
+    """
+
+    rank = max(1, -(-len(sorted_values) * p // 100))  # ceil
+    return sorted_values[int(rank) - 1]
+
+
+def _latency_row(label: str, values) -> str:
+    v = sorted(values)
+    ms = [1000 * sum(v) / len(v)] + [1000 * percentile(v, p) for p in (50, 95, 99)]
+    return f'{label:<24} {len(v):>10} {ms[0]:>7.0f} {ms[1]:>7.0f} {ms[2]:>7.0f} {ms[3]:>7.0f}'
+
+
+def _latency_table(agg: dict, top: int = 10) -> list[str]:
+    """
+    Fixed-width table (global + per dataset) of request_time in ms,
+    meant to be shown in a monospace block. Empty if no request_time was logged.
+    """
+
+    if not len(agg['latency_total']):
+        return []
+
+    lines = [f'{"":<24} {"req":>10} {"moy ms":>7} {"p50":>7} {"p95":>7} {"p99":>7}']
+    lines.append(_latency_row('TOTAL', agg['latency_total']))
+    by_count = sorted(agg['latency_datasets'].items(), key=lambda kv: -len(kv[1]))
+    for dataset, values in by_count[:top]:
+        lines.append(_latency_row(dataset[:24], values))
+    if len(by_count) > top:
+        lines.append(f'... et {len(by_count) - top} autres datasets')
+    return lines
 
 
 def _top_origins(agg: dict, top: int) -> list[tuple[str, dict]]:
@@ -152,6 +206,10 @@ def format_text(agg: dict, top: int = 25) -> str:
     for dataset, n in agg['datasets'].most_common():
         lines.append(f'  {dataset:<30} {n:>10}')
 
+    latency = _latency_table(agg, top=len(agg['latency_datasets']))
+    if latency:
+        lines += ['', 'Temps de reponse (request_time, hors bloquees):', *latency]
+
     return '\n'.join(lines)
 
 
@@ -181,6 +239,10 @@ def format_slack(agg: dict, top: int = 15, top_ua: int = 6) -> str:
         lines.append(f'  ↳ {s["requests"]} req, {_gb(s["bytes"])} GB, {blocked_pct:.0f}% bloquees')
     if not agg['uas']:
         lines.append('- (aucune requete sur la fenetre)')
+
+    latency = _latency_table(agg)
+    if latency:
+        lines += ['', '*Temps de reponse* (request_time, hors bloquees) :', '```', *latency, '```']
 
     # if agg['datasets']:
     #     top_datasets = ', '.join(f'{d} ({n})' for d, n in agg['datasets'].most_common(8))

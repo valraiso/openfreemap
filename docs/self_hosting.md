@@ -262,12 +262,12 @@ Run it as `ofm`, not as root: the lockfile in `/tmp` belongs to `ofm` and `fs.pr
 
 ## Origin statistics & abusive-origin blocking (this fork)
 
-The nginx access log is enabled (upstream has it off), **without any IP address** — the only client attribution is the `Origin` and `Referer` headers, which identify the _website_ using the tiles, not the visitor. Logs are JSON lines in `/data/ofm/http_host/logs_nginx/le-access.jsonl` (fields: time, status, bytes, dataset, blocked flag, origin, referer, user-agent), rotated daily by logrotate with 14 days retention. This directory is no longer wiped on redeploy.
+The nginx access log is enabled (upstream has it off), **without any IP address** — the only client attribution is the `Origin` and `Referer` headers, which identify the _website_ using the tiles, not the visitor. Logs are JSON lines in `/data/ofm/http_host/logs_nginx/le-access.jsonl` (fields: time, status, request_time in seconds, bytes, dataset, blocked flag, origin, referer, user-agent), rotated daily by logrotate with 14 days retention. This directory is no longer wiped on redeploy.
 
 ### Statistics
 
-- On demand, on the server: `sudo -u ofm /data/ofm/venv/bin/python /data/ofm/http_host/bin/http_host.py stats [--days N]` — table of requests / GB / blocked / statuses per origin, plus per-dataset counts. Attribution: Origin host, falling back to the Referer host, then to the user-agent (shown as `(ua) …`, truncated to 40 chars); `(none)` when all three are absent. The healthcheck identifies itself with the `ofm-healthcheck` user-agent and its self-traffic is excluded from the stats.
-- Weekly Slack report: cron `/etc/cron.d/ofm_stats_report` (Monday 08:05, server local time) posts the last 7 days to the same Slack channel as the healthcheck. Installed at deploy only when `SLACK_BOT_TOKEN`/`SLACK_CHANNEL` are set in `config/.env`.
+- On demand, on the server: `sudo -u ofm /data/ofm/venv/bin/python /data/ofm/http_host/bin/http_host.py stats [--days N]` — table of requests / GB / blocked / statuses per origin, plus per-dataset counts and a response-time table (`request_time`: mean / p50 / p95 / p99 in ms, global + per dataset; exact nearest-rank percentiles, blocked 403s excluded). `request_time` is the total time until the response is fully sent, so it includes slow clients' network time. Log lines written before `request_time` was enabled are ignored for latencies. Attribution: Origin host, falling back to the Referer host, then to the user-agent (shown as `(ua) …`, truncated to 40 chars); `(none)` when all three are absent. The healthcheck identifies itself with the `ofm-healthcheck` user-agent and its self-traffic is excluded from the stats.
+- Weekly Slack report: cron `/etc/cron.d/ofm_stats_report` (Monday 08:05, server local time) posts the last 7 days to the same Slack channel as the healthcheck, including the response-time table as a monospace code block. Installed at deploy only when `SLACK_BOT_TOKEN`/`SLACK_CHANNEL` are set in `config/.env`.
 
 ### Blocking an abusive origin
 
