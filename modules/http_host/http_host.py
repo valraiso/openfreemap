@@ -41,7 +41,7 @@ def cli():
 )
 def download_btrfs(area: str, version: str):
     """
-    Downloads and uncompresses tiles.btrfs files from the btrfs bucket
+    Downloads tiles.btrfs files from the btrfs bucket
     Version can be "latest" (default) or specified, like "20231227_043106_pt"
     Use --version=1 to list all available versions
     """

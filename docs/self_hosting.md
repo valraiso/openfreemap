@@ -14,7 +14,7 @@ There is a 99.9% chance you only need **http-host**. Tile-gen is slow, needs a h
 
 **http-host**: 300 GB disk space for hosting a single run. SSD is recommended, but not required.
 
-> Note: a download needs the compressed `.gz` and the uncompressed btrfs image at the same time, so it requires `gz_size + image_size` of free space — ~270 GB in Aug 2026 (`.gz` 98 GB, image 164 GB), and growing every week. In **autoupdate** mode the new version is downloaded while the previous one is still mounted (cleanup runs afterwards), so the volume has to hold one run plus that peak: ~450 GB usable is the realistic minimum, with [`SINGLE_PLANET=true`](#keeping-a-single-planet-run-this-fork). Upstream's default (two runs kept) needs roughly 150 GB more.
+> Note: since 2026-10-04 OFM publishes the btrfs image uncompressed (`tiles.btrfs`, no more `tiles.btrfs.gz`), so a download needs the size of the image plus 1 GB of free space — ~166 GB in Oct 2026, growing every week. In **autoupdate** mode the new version is downloaded while the previous one is still mounted (cleanup runs afterwards), so the volume has to hold two images at that moment: ~350 GB usable is the realistic minimum, with [`SINGLE_PLANET=true`](#keeping-a-single-planet-run-this-fork). Upstream's default (two runs kept) needs one more image, roughly 165 GB more.
 
 **tile-gen**: 500 GB SDD and at least 64 GB ram
 
@@ -106,7 +106,7 @@ Update your `.env` file and re-run the same `./init-server.py http-host-static H
 
 Go for a walk and by the time you come back it should be up and running with the latest planet tiles deployed. Don't worry about the "Download aborted" lines in the meanwhile, it's a bug in CloudFlare.
 
-If your server doesn't have an SSD, the download + uncompressing process can take hours.
+If your server doesn't have an SSD, the download and its SHA-256 verification can take hours.
 
 ---
 
@@ -160,7 +160,7 @@ A cron task (`/etc/cron.d/ofm_healthcheck`, every 5 minutes) runs `http_host.py 
 - `https://DOMAIN/planet` returns HTTP 200 with a valid TileJSON (and `/monaco` too);
 - a sample tile from that TileJSON returns HTTP 200;
 - the served version matches `/data/ofm/config/deployed_versions/{area}.txt` — a mismatch means the sync is stuck (typically out of disk space) and `/planet` is serving a stale run;
-- free disk space is enough for the **next** planet download, computed from the size of the newest remote `.gz` plus the local image size (~270 GB in Aug 2026, growing every week). `HEALTHCHECK_MIN_FREE_GB` in `config/.env` is the fallback threshold, used only when that size cannot be fetched (default 300 GB).
+- free disk space is enough for the **next** planet download, computed from the size of the newest remote `tiles.btrfs` plus 1 GB (~166 GB in Oct 2026, growing every week). `HEALTHCHECK_MIN_FREE_GB` in `config/.env` is the fallback threshold, used only when that size cannot be fetched (default 300 GB).
 
 On failure it posts to a Slack channel via a bot token (`chat.postMessage`), then stays quiet: one message per state change (failure/recovery) plus a daily reminder while the failure lasts. State is kept in `/data/ofm/http_host/healthcheck_state.json`, logs in `/data/ofm/http_host/logs/healthcheck.log`.
 
@@ -178,14 +178,12 @@ Set `SINGLE_PLANET=true` in `config/.env` and redeploy to keep **only the run th
 
 - `auto_clean_btrfs` keeps the `deployed` planet run only. While that run is not downloaded yet, the newest local run is kept instead — the last servable run is never deleted. `monaco` is unaffected (its runs are 275 MB).
 - the sync no longer downloads the planet `latest` run, only `deployed`: a second ~150 GB run would be deleted by the cleanup right away and re-downloaded the next night.
-- the free-space requirement checked before a download is computed from reality — `gz size + local image size × 1.05` — instead of upstream's `3 × gz`. The peak usage is the `.gz` plus the uncompressed image, which coexist until `unpigz` is done. With no local image to compare with (fresh server), `3 × gz` is used.
-
-Figures on 2026-08-24: planet `.gz` 97.8 GB, image 163.8 GB → 270 GB actually needed. With two runs kept, 138 GB were free (update impossible); with one run, 300 GB (update possible).
+  Figures on 2026-08-24, when OFM still published a `.gz` that had to be uncompressed next to the image: 270 GB needed per download. With two runs kept, 138 GB were free (update impossible); with one run, 300 GB (update possible). Since the uncompressed `tiles.btrfs` is downloaded directly (Oct 2026), a download needs ~166 GB.
 
 Two consequences to be aware of:
 
 - **No spare run.** If the served image is corrupt, the fix is a re-download, not a switch back to the previous version.
-- **The version transition is the peak**: old run mounted + new `.gz` + new image. That peak is what sizes the volume, and it grows with the planet — the healthcheck disk alert (below) is what warns you before it stops fitting.
+- **The version transition is the peak**: old run mounted + new image being downloaded. That peak is what sizes the volume, and it grows with the planet — the healthcheck disk alert (below) is what warns you before it stops fitting.
 
 Independently of this option, `/{area}` now degrades instead of failing: when the deployed run is not available locally, nginx serves the newest mounted run (stale) rather than dropping the `location = /{area}` block and returning **403**. The healthcheck reports the served/deployed mismatch, so a stuck sync is an alert, not an outage.
 
@@ -215,9 +213,11 @@ Each run starts with `---`, a UTC timestamp and `Starting sync`, then prints one
 | Line                                                                    | Meaning                                                                                                                              |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `file exists, skipping download`                                        | already present locally, nothing to do — the normal case for most runs                                                               |
-| `not enough disk space. Needed: N, free space: M`                       | update attempted and **failed**; a download needs the `.gz` plus the uncompressed image at once (~270 GB for the planet in Aug 2026) |
-| `cannot get remote file size for …`                                     | bucket unreachable, or the version disappeared upstream                                                                              |
-| aria2 progress, then `uncompressing...`                                 | download succeeded                                                                                                                   |
+| `not enough disk space. Needed: N, free space: M`                       | update attempted and **failed**; a download needs the image size plus 1 GB (~166 GB for the planet in Oct 2026)                      |
+| `cannot get remote file size for …`                                     | bucket unreachable, or the version disappeared upstream (OFM purges old runs, and stopped publishing `tiles.btrfs.gz` on 2026-10-04) |
+| aria2 progress, then `verifying sha256...`                              | download done, being checked against the run's `SHA256SUMS`                                                                          |
+| `sha256 mismatch for …, discarding the download`                        | download corrupted and deleted; the next sync downloads it again                                                                     |
+| `no sha256 for tiles.btrfs in …`                                        | the run has no checksum (older runs), the download is kept unverified                                                                |
 | `Running auto clean btrfs`, `keeping runs for …`, `removing runs for …` | something changed → cleanup, remount and nginx config rewrite ran                                                                    |
 
 Two things to keep in mind:

@@ -111,9 +111,9 @@ def check_area(domain: str, area: str) -> list[str]:
 def check_disk_space() -> list[str]:
     """
     Early warning, before the sync starts silently skipping updates: a planet
-    download needs the .gz and the uncompressed image at the same time (~270 GB in
-    Aug 2026, growing every week). The requirement is computed from the actual size
-    of the newest remote .gz, so the alert stays meaningful as the planet grows.
+    download needs room for the whole image (~165 GB in Oct 2026, growing every
+    week). The requirement is computed from the actual size of the newest remote
+    tiles.btrfs, so the alert stays meaningful as the planet grows.
     HEALTHCHECK_MIN_FREE_GB in config/.env is the fallback threshold, used when the
     btrfs bucket is unreachable.
     """
@@ -133,7 +133,7 @@ def check_disk_space() -> list[str]:
         if free < needed:
             return [
                 f'espace disque insuffisant pour la prochaine MAJ planet:'
-                f' {free / 1e9:.0f} GB libres < {needed / 1e9:.0f} GB requis (gz + image),'
+                f' {free / 1e9:.0f} GB libres < {needed / 1e9:.0f} GB requis (image),'
                 ' le telechargement sera saute'
             ]
         return []

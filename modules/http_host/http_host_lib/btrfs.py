@@ -2,23 +2,20 @@ import shutil
 import subprocess
 import sys
 
+import requests
+
 from http_host_lib.config import config
 from http_host_lib.shared import get_versions_for_area
 from http_host_lib.utils import download_file_aria2, get_remote_file_size
 
 
-# margin applied to the size of the local reference image: a new run is slightly
-# bigger than the previous one, the planet grows a little every week
-IMAGE_GROWTH_FACTOR = 1.05
-
-# used when no local image can serve as a reference (fresh server):
-# upstream's conservative estimate, the .gz uncompresses to roughly 1.6x its size
-NO_REFERENCE_FACTOR = 3
+# headroom kept free on top of the image itself, same as upstream linux_host
+DISK_SPACE_MARGIN = 1024**3
 
 
 def download_area_version(area: str, version: str) -> bool:
     """
-    Downloads and uncompresses tiles.btrfs files from the btrfs bucket
+    Downloads tiles.btrfs files from the btrfs bucket
 
     "latest" version means the latest in the remote bucket
     "deployed" version means to read the currently deployed version string from the config dir
@@ -53,12 +50,15 @@ def download_area_version(area: str, version: str) -> bool:
             return False
         selected_version = version
 
-    return download_and_extract_btrfs(area, selected_version)
+    return download_btrfs(area, selected_version)
 
 
-def download_and_extract_btrfs(area: str, version: str) -> bool:
+def download_btrfs(area: str, version: str) -> bool:
     """
     returns True if download successful, False if skipped
+
+    Since 2026-10-04 upstream only publishes the uncompressed tiles.btrfs (no more
+    tiles.btrfs.gz), with its checksum in the run's SHA256SUMS.
     """
 
     print(f'Downloading btrfs: {area} {version}')
@@ -73,7 +73,8 @@ def download_and_extract_btrfs(area: str, version: str) -> bool:
     shutil.rmtree(temp_dir, ignore_errors=True)
     temp_dir.mkdir(parents=True)
 
-    url = f'https://btrfs.openfreemap.com/areas/{area}/{version}/tiles.btrfs.gz'
+    base_url = run_url(area, version)
+    url = f'{base_url}/tiles.btrfs'
 
     # check disk space
     disk_free = shutil.disk_usage(temp_dir).free
@@ -82,58 +83,67 @@ def download_and_extract_btrfs(area: str, version: str) -> bool:
         print(f'  cannot get remote file size for {url}')
         return False
 
-    needed = needed_space(area, file_size)
+    needed = needed_space(file_size)
     if disk_free < needed:
         print(
             f'  not enough disk space. Needed: {needed}, free space: {disk_free}'
-            f' ({needed / 1e9:.0f} GB needed for a {file_size / 1e9:.0f} GB gz,'
-            f' {disk_free / 1e9:.0f} GB free)'
+            f' ({needed / 1e9:.0f} GB needed, {disk_free / 1e9:.0f} GB free)'
         )
         return False
 
-    target_file = temp_dir / 'tiles.btrfs.gz'
+    expected_sha256 = remote_sha256(base_url)
+
+    target_file = temp_dir / 'tiles.btrfs'
     download_file_aria2(url, target_file)
 
-    print('  uncompressing...')
-    subprocess.run(['unpigz', temp_dir / 'tiles.btrfs.gz'], check=True)
-    btrfs_src = temp_dir / 'tiles.btrfs'
+    if expected_sha256:
+        print('  verifying sha256...')
+        p = subprocess.run(['sha256sum', target_file], capture_output=True, text=True, check=True)
+        if p.stdout.split()[0] != expected_sha256:
+            print(f'  sha256 mismatch for {url}, discarding the download')
+            shutil.rmtree(temp_dir)
+            return False
+    else:
+        print(f'  no sha256 for tiles.btrfs in {base_url}/SHA256SUMS, not verified')
 
     shutil.rmtree(version_dir, ignore_errors=True)
     version_dir.mkdir(parents=True)
 
-    btrfs_src.rename(btrfs_file)
+    target_file.rename(btrfs_file)
 
     shutil.rmtree(temp_dir)
     return True
 
 
-def local_image_size(area: str) -> int | None:
+def run_url(area: str, version: str) -> str:
+    return f'https://btrfs.openfreemap.com/areas/{area}/{version}'
+
+
+def remote_sha256(base_url: str) -> str | None:
     """
-    Size of the biggest local tiles.btrfs of an area, None if there is none.
-    The images are not sparse, so the apparent size is what a new run will take.
+    Expected sha256 of tiles.btrfs, None if the run has no SHA256SUMS or no entry
+    for it (older runs).
     """
 
-    area_dir = config.runs_dir / area
-    if not area_dir.is_dir():
+    r = requests.get(f'{base_url}/SHA256SUMS', timeout=30)
+    if r.status_code == 404:
         return None
+    r.raise_for_status()
 
-    sizes = [f.stat().st_size for f in area_dir.glob('*/tiles.btrfs')]
-    return max(sizes) if sizes else None
+    for line in r.text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].lstrip('*') == 'tiles.btrfs':
+            return parts[0]
+    return None
 
 
-def needed_space(area: str, gz_size: int) -> int:
+def needed_space(image_size: int) -> int:
     """
-    Free space a download needs: the .gz and the uncompressed image coexist until
-    unpigz is done, so the peak is gz + image, not the 3x gz upstream assumes.
-    For the planet that is the difference between ~270 GB and ~294 GB, which
-    decides whether an update can happen at all on a 500 GB volume.
+    Free space a download needs: the image is downloaded as-is into _tmp, then
+    moved into place, so the peak is the image itself plus a small margin.
     """
 
-    reference = local_image_size(area)
-    if not reference:
-        return gz_size * NO_REFERENCE_FACTOR
-
-    return gz_size + int(reference * IMAGE_GROWTH_FACTOR)
+    return image_size + DISK_SPACE_MARGIN
 
 
 def next_download_needed_space(area: str) -> int | None:
@@ -147,9 +157,8 @@ def next_download_needed_space(area: str) -> int | None:
     if not versions:
         return None
 
-    url = f'https://btrfs.openfreemap.com/areas/{area}/{versions[-1]}/tiles.btrfs.gz'
-    gz_size = get_remote_file_size(url)
-    if not gz_size:
+    image_size = get_remote_file_size(f'{run_url(area, versions[-1])}/tiles.btrfs')
+    if not image_size:
         return None
 
-    return needed_space(area, gz_size)
+    return needed_space(image_size)
