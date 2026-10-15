@@ -15,6 +15,7 @@ from ssh_lib import (
 )
 from ssh_lib.benchmark import c1000k, wrk
 from ssh_lib.kernel import kernel_limits1m, kernel_somaxconn65k
+from ssh_lib.monitoring import otelcol
 from ssh_lib.nginx import certbot, nginx
 from ssh_lib.pkg_base import pkg_base, pkg_upgrade
 from ssh_lib.planetiler import install_planetiler
@@ -138,6 +139,8 @@ def prepare_http_host(c):
         put(c, MODULES_DIR / 'http_host' / 'cron.d' / 'ofm_stats_report', '/etc/cron.d/')
 
     upload_demo_home(c)
+
+    otelcol(c)
 
     pip_install_http_host(c)
 

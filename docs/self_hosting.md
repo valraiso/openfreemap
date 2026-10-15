@@ -170,6 +170,20 @@ Setup:
 2. Set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL` (channel ID, not name) in `config/.env`. Leaving them empty disables the cron at deploy time.
 3. Redeploy (`./init-server.py http-host-autoupdate HOSTNAME`), or run `http_host.py healthcheck` manually on the server to test.
 
+## Host metrics to Prometheus (this fork)
+
+The [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) (contrib distribution, same config conventions as the other VMs) runs on the server as the systemd service `otelcol-contrib`. Its `hostmetrics` receiver collects CPU, disk I/O, filesystems, load, memory, paging, network and processes every 15 s and the `prometheusremotewrite` exporter pushes them to a Prometheus instance with an `Authorization: Bearer` header. Resource attributes (`host.name`, ...) become labels.
+
+**Disk space of `/data/ofm`**: it has no mount of its own, it lives on the root filesystem, so `system_filesystem_usage{mountpoint="/"}` (and `system_filesystem_utilization`) is the series to watch — it is the free space the planet downloads need. The read-only btrfs mounts under `/mnt/ofm` are excluded (static images). If `/data` is ever moved to a dedicated volume, its mount point appears automatically.
+
+Setup:
+
+1. Make sure the Prometheus instance accepts remote write (`--web.enable-remote-write-receiver`) and that the reverse proxy in front of it checks the token.
+2. Set `PROMETHEUS_REMOTE_WRITE_URL` (e.g. `https://obs.example.com:9090/api/v1/write`) and `PROMETHEUS_PUSH_TOKEN` in `config/.env`. Leaving them empty disables the service at deploy time.
+3. Redeploy (`./init-server.py http-host-autoupdate HOSTNAME`). The deploy installs the `.deb` pinned in `ssh_lib/monitoring.py` (`OTELCOL_VERSION`) from the GitHub releases, writes `/etc/otelcol-contrib/config.yaml` and `/etc/otelcol-contrib/otelcol-contrib.conf` (mode 600, holds the URL and the token). To upgrade, bump `OTELCOL_VERSION` and redeploy.
+
+Check on the server: `systemctl status otelcol-contrib`, `journalctl -u otelcol-contrib -n 50` (a 401/403 or a TLS error shows up there), and in Prometheus `system_filesystem_usage{mountpoint="/",state="free"}`.
+
 ## Keeping a single planet run (this fork)
 
 Upstream keeps **two** planet runs on disk (the deployed one and the newest one). On a 500 GB volume that leaves too little free space for the next download, so the sync skips the update every night — silently, since a skipped download is not an error.

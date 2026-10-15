@@ -1,0 +1,90 @@
+# OpenTelemetry Collector - host metrics agent, pushed to Prometheus via remote_write.
+# Same conventions as the other VMs (hostmetrics + prometheusremotewrite with a
+# Bearer header). URL and token come from the environment file written at deploy
+# from config/.env.
+#
+# Disk space of /data/ofm: it has no mount of its own, it lives on "/", so
+# system_filesystem_usage{mountpoint="/"} is the series to alert on.
+
+extensions:
+  health_check:
+    endpoint: 127.0.0.1:13133
+
+receivers:
+  hostmetrics:
+    collection_interval: 15s
+    scrapers:
+      cpu:
+      disk:
+      filesystem:
+        # Exclude virtual/kernel filesystems and the read-only btrfs loop mounts of
+        # the tile runs (/mnt/ofm/*, static) - only real mounts are useful.
+        exclude_mount_points:
+          mount_points: ['/proc/*', '/sys/*', '/dev/*', '/run/*', '/mnt/ofm/*']
+          match_type: regexp
+        exclude_fs_types:
+          fs_types:
+            [
+              autofs,
+              binfmt_misc,
+              bpf,
+              cgroup2,
+              configfs,
+              debugfs,
+              devpts,
+              devtmpfs,
+              fusectl,
+              hugetlbfs,
+              mqueue,
+              nsfs,
+              overlay,
+              proc,
+              procfs,
+              pstore,
+              rpc_pipefs,
+              securityfs,
+              squashfs,
+              sysfs,
+              tracefs,
+            ]
+          match_type: strict
+      load:
+      memory:
+      network:
+      paging:
+      processes:
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 200
+    spike_limit_mib: 50
+
+  # hostname, OS; "env" reads OTEL_RESOURCE_ATTRIBUTES
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 2s
+
+  batch:
+    timeout: 5s
+
+exporters:
+  # Caddy on the central host terminates TLS and requires the bearer token before
+  # proxying to Prometheus. resource_to_telemetry_conversion promotes the resource
+  # attributes (host.name, ...) to Prometheus labels.
+  prometheusremotewrite:
+    endpoint: '${PROMETHEUS_REMOTE_WRITE_URL}'
+    headers:
+      Authorization: 'Bearer ${PROMETHEUS_PUSH_TOKEN}'
+    tls:
+      insecure: false
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [prometheusremotewrite]
