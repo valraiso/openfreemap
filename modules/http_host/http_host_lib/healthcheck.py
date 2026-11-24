@@ -19,6 +19,10 @@ REALERT_HOURS = 24
 
 DEFAULT_MIN_FREE_GB = 300
 
+# a served/deployed version mismatch is expected while the nightly sync switches
+# versions, and a stuck sync is not urgent: only alert if it lasts this long
+VERSION_MISMATCH_TOLERANCE_HOURS = 6
+
 
 def run_healthcheck() -> int:
     """
@@ -31,6 +35,7 @@ def run_healthcheck() -> int:
     """
 
     issues = []
+    mismatches = {}
 
     domain = config.ofm_config.get('domain_direct')
     if not domain:
@@ -39,20 +44,27 @@ def run_healthcheck() -> int:
         for area in config.areas:
             if area == 'planet' and config.ofm_config.get('skip_planet'):
                 continue
-            issues += check_area(domain, area)
+            area_issues, mismatch = check_area(domain, area)
+            issues += area_issues
+            if mismatch:
+                mismatches[area] = mismatch
 
     issues += check_disk_space()
+    issues += apply_version_mismatch_tolerance(mismatches)
 
     notify(domain or 'http-host', issues)
 
     return 1 if issues else 0
 
 
-def check_area(domain: str, area: str) -> list[str]:
+def check_area(domain: str, area: str) -> tuple[list[str], str | None]:
     """
     Checks the "latest" TileJSON of an area, a sample tile taken from it,
     and that the served version matches the deployed version file
     (a mismatch means the sync is stuck, e.g. out of disk space).
+
+    Returns (issues, version_mismatch): the mismatch is reported separately because
+    it only raises an alert once it has lasted longer than the tolerance.
     """
 
     verify_certs = not config.ofm_config.get('self_signed_certs')
@@ -66,14 +78,14 @@ def check_area(domain: str, area: str) -> list[str]:
             headers={'User-Agent': HEALTHCHECK_USER_AGENT},
         )
     except Exception as e:
-        return [f'{tilejson_url} injoignable ({e.__class__.__name__})']
+        return [f'{tilejson_url} injoignable ({e.__class__.__name__})'], None
     if r.status_code != 200:
-        return [f'{tilejson_url} repond HTTP {r.status_code} au lieu de 200']
+        return [f'{tilejson_url} repond HTTP {r.status_code} au lieu de 200'], None
 
     try:
         tiles_template = r.json()['tiles'][0]
     except Exception:
-        return [f'{tilejson_url} ne renvoie pas un TileJSON valide']
+        return [f'{tilejson_url} ne renvoie pas un TileJSON valide'], None
 
     issues = []
 
@@ -97,13 +109,47 @@ def check_area(domain: str, area: str) -> list[str]:
         served_version = tiles_template.split(f'/{area}/')[1].split('/')[0]
         deployed_version = (config.deployed_versions_dir / f'{area}.txt').read_text().strip()
     except Exception:
-        return issues  # versioned URL or version file unavailable, skip this check
+        return issues, None  # versioned URL or version file unavailable, skip this check
 
+    mismatch = None
     if served_version != deployed_version:
-        issues.append(
+        mismatch = (
             f'{area}: version servie {served_version} != version deployed'
             f' {deployed_version} (sync bloque ? voir logs/http_host_sync.log)'
         )
+
+    return issues, mismatch
+
+
+def apply_version_mismatch_tolerance(mismatches: dict[str, str]) -> list[str]:
+    """
+    Returns the mismatch messages that have lasted longer than the tolerance.
+    First-seen timestamps are kept per area in a state file.
+    """
+
+    state_file = config.http_host_dir / 'healthcheck_mismatch_state.json'
+    now = datetime.now(timezone.utc)
+
+    try:
+        first_seen = json.loads(state_file.read_text())
+    except Exception:
+        first_seen = {}
+
+    # areas back in sync (or no longer checked) are forgotten
+    first_seen = {a: t for a, t in first_seen.items() if a in mismatches}
+
+    issues = []
+    for area, message in mismatches.items():
+        since = datetime.fromisoformat(first_seen.setdefault(area, now.isoformat()))
+        if now - since > timedelta(hours=VERSION_MISMATCH_TOLERANCE_HOURS):
+            issues.append(message)
+        else:
+            print(f'  {message} (tolere depuis {since.isoformat()})')
+
+    try:
+        state_file.write_text(json.dumps(first_seen))
+    except OSError as e:  # local testing without /data/ofm
+        print(f'  etat non persiste: {e}')
 
     return issues
 

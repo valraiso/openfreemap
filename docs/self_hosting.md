@@ -159,7 +159,7 @@ A cron task (`/etc/cron.d/ofm_healthcheck`, every 5 minutes) runs `http_host.py 
 
 - `https://DOMAIN/planet` returns HTTP 200 with a valid TileJSON (and `/monaco` too);
 - a sample tile from that TileJSON returns HTTP 200;
-- the served version matches `/data/ofm/config/deployed_versions/{area}.txt` — a mismatch means the sync is stuck (typically out of disk space) and `/planet` is serving a stale run;
+- the served version matches `/data/ofm/config/deployed_versions/{area}.txt` — a mismatch means the sync is stuck (typically out of disk space) and `/planet` is serving a stale run. A mismatch is normal for a while around the nightly sync, so it only alerts once it has lasted more than 6 hours (`VERSION_MISMATCH_TOLERANCE_HOURS` in `healthcheck.py`; first-seen time kept in `healthcheck_mismatch_state.json`);
 - free disk space is enough for the **next** planet download, computed from the size of the newest remote `tiles.btrfs` plus 1 GB (~166 GB in Oct 2026, growing every week). `HEALTHCHECK_MIN_FREE_GB` in `config/.env` is the fallback threshold, used only when that size cannot be fetched (default 300 GB).
 
 On failure it posts to a Slack channel via a bot token (`chat.postMessage`), then stays quiet: one message per state change (failure/recovery) plus a daily reminder while the failure lasts. State is kept in `/data/ofm/http_host/healthcheck_state.json`, logs in `/data/ofm/http_host/logs/healthcheck.log`.
