@@ -80,11 +80,11 @@ GET {{host}}/
 
 ### Home avec auth — 200, page HTML MapLibre (style winter par défaut)
 GET {{host}}/
-Authorization: Basic valraiso:VerUfemboy45
+Authorization: Basic valraiso:PASSWORD
 
 ### Home avec style dans l'URL — 200, même page (le style est lu côté client)
 GET {{host}}/?style=summer
-Authorization: Basic valraiso:VerUfemboy45
+Authorization: Basic valraiso:PASSWORD
 
 ###############################################################################
 # Blocage d'origines (bloquer d'abord : sudo http_host.py block evil.example)
